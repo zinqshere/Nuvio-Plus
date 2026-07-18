@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onSizeChanged
 import com.nuvio.app.features.p2p.P2pStreamingState
@@ -84,6 +85,47 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
     }
     val gestureCallbacks = rememberSurfaceGestureCallbacks()
 
+    LaunchedEffect(activeSourceUrl, activeSourceAudioUrl, activeSourceHeaders, activeTorrentInfoHash) {
+        val resolvingSourceUrl = activeSourceUrl
+        val resolvingAudioUrl = activeSourceAudioUrl
+        val resolvingHeaders = activeSourceHeaders
+        val resolvingTorrentInfoHash = activeTorrentInfoHash
+
+        selectedPlayerQualityId = null
+        val shouldInspectHls = activeTorrentInfoHash == null &&
+            activeSourceAudioUrl == null &&
+            activeSourceUrl.contains(".m3u8", ignoreCase = true)
+        activePlaybackSourceUrl = if (shouldInspectHls) null else activeSourceUrl
+        playerQualityState = PlayerQualitySelectionState(
+            isLoading = shouldInspectHls,
+            sourceUrl = activeSourceUrl,
+        )
+
+        if (shouldInspectHls) {
+            val resolved = runCatching {
+                PlayerQualityResolver.resolve(
+                    sourceUrl = resolvingSourceUrl,
+                    requestHeaders = resolvingHeaders,
+                )
+            }.getOrElse { error ->
+                PlayerQualitySelectionState(
+                    sourceUrl = resolvingSourceUrl,
+                    errorMessage = error.message ?: "Unable to inspect HLS quality variants.",
+                )
+            }
+
+            if (activeSourceUrl != resolvingSourceUrl ||
+                activeSourceAudioUrl != resolvingAudioUrl ||
+                activeTorrentInfoHash != resolvingTorrentInfoHash
+            ) return@LaunchedEffect
+
+            playerQualityState = resolved
+            activePlaybackSourceUrl = resolved.playbackUrlFor(null) ?: resolvingSourceUrl
+        } else {
+            playerQualityState = PlayerQualitySelectionState(sourceUrl = resolvingSourceUrl)
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -115,7 +157,7 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                 commitHorizontalSeekState = gestureCallbacks.commitHorizontalSeek,
             ),
     ) {
-        val playerSurfaceSourceUrl = if (isP2pPlaybackActive) p2pResolvedSourceUrl else activeSourceUrl
+        val playerSurfaceSourceUrl = if (isP2pPlaybackActive) p2pResolvedSourceUrl else activePlaybackSourceUrl
         if (playerSurfaceSourceUrl != null) {
             PlatformPlayerSurface(
                 sourceUrl = playerSurfaceSourceUrl,
@@ -129,7 +171,7 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                 resizeMode = resizeMode,
                 onControllerReady = { controller ->
                     playerController = controller
-                    playerControllerSourceUrl = activeSourceUrl
+                    playerControllerSourceUrl = playerSurfaceSourceUrl
                 },
                 onSnapshot = { snapshot ->
                     playbackSnapshot = snapshot
@@ -238,6 +280,10 @@ private fun PlayerScreenRuntime.RenderPlayerControls(displayedPositionMs: Long, 
             },
             onSourcesClick = if (activeVideoId != null) { { openSourcesPanel() } } else null,
             onEpisodesClick = if (isSeries) { { openEpisodesPanel() } } else null,
+            qualityLabel = playerQualityControlLabel(),
+            onQualityClick = {
+                openQualityPanel()
+            },
             onOpenInExternalPlayer = args.onOpenInExternalPlayer?.let { openExternal ->
                 {
                     val loadedSubtitles = addonSubtitles
@@ -369,6 +415,38 @@ private fun BoxScope.RenderPlaybackOverlays(
     }
 }
 
+private fun PlayerScreenRuntime.openQualityPanel() {
+    showQualityPanel = true
+    showSourcesPanel = false
+    showEpisodesPanel = false
+    controlsVisible = false
+}
+
+private fun PlayerScreenRuntime.playerQualityControlLabel(): String {
+    if (playerQualityState.isLoading) return playbackResolutionLabel(forButton = true) ?: "Quality"
+    val label = playerQualityState.labelFor(selectedPlayerQualityId, forButton = true)
+    if (!label.isNullOrBlank()) {
+        return if (selectedPlayerQualityId == null && playerQualityState.hasSelectableQualities) {
+            "Auto $label"
+        } else {
+            label
+        }
+    }
+    return playbackResolutionLabel(forButton = true) ?: "Quality"
+}
+
+private fun PlayerScreenRuntime.currentQualityPanelResolutionLabel(): String? {
+    playbackResolutionLabel(forButton = false)?.let { return it }
+    return playerQualityState.labelFor(selectedPlayerQualityId, forButton = false)
+}
+
+private fun PlayerScreenRuntime.playbackResolutionLabel(forButton: Boolean): String? =
+    playerQualityNameForResolution(
+        width = playbackSnapshot.videoWidth,
+        height = playbackSnapshot.videoHeight,
+        forButton = forButton,
+    )
+
 @Composable
 private fun PlayerScreenRuntime.RenderPlayerModals(displayedPositionMs: Long) {
     PlayerScreenModalHosts(
@@ -443,6 +521,15 @@ private fun PlayerScreenRuntime.RenderPlayerModals(displayedPositionMs: Long) {
         activeEpisodeTitle = activeEpisodeTitle,
         activeSourceUrl = activeSourceUrl,
         activeStreamTitle = activeStreamTitle,
+        showQualityPanel = showQualityPanel,
+        playerQualityState = playerQualityState,
+        selectedPlayerQualityId = selectedPlayerQualityId,
+        currentQualityLabel = currentQualityPanelResolutionLabel(),
+        onPlayerQualitySelected = { qualityId -> selectPlayerQuality(qualityId) },
+        onQualityPanelDismissed = {
+            showQualityPanel = false
+            controlsVisible = true
+        },
         onSourceFilterSelected = PlayerStreamsRepository::selectSourceFilter,
         onSourceStreamSelected = { stream -> switchToSource(stream) },
         onReloadSources = {

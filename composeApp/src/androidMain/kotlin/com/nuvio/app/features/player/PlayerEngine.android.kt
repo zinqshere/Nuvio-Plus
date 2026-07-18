@@ -1052,6 +1052,7 @@ private class NuvioLibmpvView(
         mpv.setOptionString("msg-level", "all=warn")
         mpv.setOptionString("tls-verify", "yes")
         mpv.setOptionString("tls-ca-file", "${context.filesDir.path}/cacert.pem")
+        mpv.setOptionString("demuxer-lavf-o", "protocol_whitelist=[file,crypto,data,http,https,tcp,tls]").logIfMpvError("demuxer-lavf-o")
         mpv.setOptionString("demuxer-max-bytes", "${libmpvCacheBytes()}").logIfMpvError("demuxer-max-bytes")
         mpv.setOptionString("demuxer-max-back-bytes", "${libmpvCacheBytes()}").logIfMpvError("demuxer-max-back-bytes")
         mpv.setOptionString("vd-lavc-film-grain", "cpu")
@@ -1074,6 +1075,10 @@ private class NuvioLibmpvView(
             "time-pos" to MPV.mpvFormat.MPV_FORMAT_DOUBLE,
             "demuxer-cache-time" to MPV.mpvFormat.MPV_FORMAT_DOUBLE,
             "speed" to MPV.mpvFormat.MPV_FORMAT_DOUBLE,
+            "video-params/w" to MPV.mpvFormat.MPV_FORMAT_INT64,
+            "video-params/h" to MPV.mpvFormat.MPV_FORMAT_INT64,
+            "video-out-params/w" to MPV.mpvFormat.MPV_FORMAT_INT64,
+            "video-out-params/h" to MPV.mpvFormat.MPV_FORMAT_INT64,
             "track-list" to MPV.mpvFormat.MPV_FORMAT_NODE,
         )
         props.forEach { (name, format) -> mpv.observeProperty(name, format) }
@@ -1159,6 +1164,10 @@ private class NuvioLibmpvView(
             videoHeight = videoHeight,
         )
     }
+
+    private fun mpvVideoDimension(axis: String): Int? =
+        (mpv.getPropertyInt("video-params/$axis") ?: mpv.getPropertyInt("video-out-params/$axis"))
+            ?.takeIf { it > 0 }
 
     fun shouldKeepScreenOn(): Boolean {
         val snapshot = snapshot()

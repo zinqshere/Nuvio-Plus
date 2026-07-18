@@ -509,3 +509,14 @@ private fun PlayerScreenRuntime.saveDirectStreamForReuse(
         ),
     )
 }
+
+
+internal fun PlayerScreenRuntime.selectPlayerQuality(qualityId: String?) {
+    selectedPlayerQualityId = qualityId.takeUnless { it == PlayerQualityAutoId }
+    activePlaybackSourceUrl = playerQualityState.playbackUrlFor(selectedPlayerQualityId) ?: activeSourceUrl
+    initialLoadCompleted = false
+    errorMessage = null
+    shouldPlay = true
+    showQualityPanel = false
+    controlsVisible = true
+}

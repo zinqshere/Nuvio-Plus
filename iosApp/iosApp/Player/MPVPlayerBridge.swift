@@ -188,6 +188,8 @@ final class MPVPlayerBridgeImpl: NSObject, NuvioPlayerBridge {
     func getPositionMs() -> Int64 { return playerVC?.positionMs ?? 0 }
     func getBufferedMs() -> Int64 { return playerVC?.bufferedMs ?? 0 }
     func getPlaybackSpeed() -> Float { playerVC?.currentSpeed ?? 1.0 }
+    func getVideoWidth() -> Int32 { Int32(playerVC?.currentVideoWidth ?? 0) }
+    func getVideoHeight() -> Int32 { Int32(playerVC?.currentVideoHeight ?? 0) }
     func getErrorMessage() -> String { playerVC?.currentErrorMessage ?? "" }
 
     func destroy() {
@@ -485,6 +487,7 @@ final class MPVPlayerViewController: UIViewController {
         checkError(mpv_set_option_string(mpv, "target-colorspace-hint", "yes"))
         checkError(mpv_set_option_string(mpv, "tone-mapping", "auto"))
         checkError(mpv_set_option_string(mpv, "hdr-compute-peak", "yes"))
+        checkError(mpv_set_option_string(mpv, "demuxer-lavf-o", "protocol_whitelist=[file,crypto,data,http,https,tcp,tls]"))
 
         checkError(mpv_initialize(mpv))
 
@@ -1162,6 +1165,16 @@ final class MPVPlayerViewController: UIViewController {
                 }
             }
         }
+    }
+
+    var currentVideoWidth: Int {
+        let width = getInt("video-out-params/w")
+        return width > 0 ? width : getInt("video-params/w")
+    }
+
+    var currentVideoHeight: Int {
+        let height = getInt("video-out-params/h")
+        return height > 0 ? height : getInt("video-params/h")
     }
 
     // MARK: - MPV Helpers

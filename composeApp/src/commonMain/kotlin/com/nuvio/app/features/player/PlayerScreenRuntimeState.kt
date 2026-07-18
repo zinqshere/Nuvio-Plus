@@ -94,8 +94,22 @@ internal class PlayerScreenRuntime(
 
     var controlsVisible by mutableStateOf(true)
     var playerControlsLocked by mutableStateOf(false)
+    private val shouldResolveInitialPlayerQuality: Boolean
+        get() = torrentInfoHash == null &&
+            sourceAudioUrl == null &&
+            sourceUrl.contains(".m3u8", ignoreCase = true)
+
     var activeSourceUrl by mutableStateOf(sourceUrl)
+    var selectedPlayerQualityId by mutableStateOf<String?>(null)
     var activeSourceAudioUrl by mutableStateOf(sourceAudioUrl)
+
+    var activePlaybackSourceUrl by mutableStateOf<String?>(
+        if (shouldResolveInitialPlayerQuality) null else sourceUrl,
+    )
+    var playerQualityState by mutableStateOf(
+        PlayerQualitySelectionState(isLoading = shouldResolveInitialPlayerQuality, sourceUrl = sourceUrl),
+    )
+
     var activeSourceHeaders by mutableStateOf(sanitizePlaybackHeaders(sourceHeaders))
     var activeSourceResponseHeaders by mutableStateOf(sanitizePlaybackResponseHeaders(sourceResponseHeaders))
     var activeStreamType by mutableStateOf(streamType)
@@ -154,6 +168,7 @@ internal class PlayerScreenRuntime(
     var currentTraktScrobbleItem by mutableStateOf<TraktScrobbleItem?>(null)
 
     var showSourcesPanel by mutableStateOf(false)
+    var showQualityPanel by mutableStateOf(false)
     var showEpisodesPanel by mutableStateOf(false)
     var showSubmitIntroModal by mutableStateOf(false)
     var submitIntroSegmentType by mutableStateOf("intro")
