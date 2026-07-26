@@ -42,10 +42,14 @@ import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.text.Cue
 import androidx.media3.common.text.CueGroup
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.common.audio.AudioProcessor
+import androidx.media3.common.audio.BaseAudioProcessor
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.TransferListener
+import androidx.media3.exoplayer.audio.AudioSink
+import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
@@ -78,6 +82,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.net.HttpURLConnection
 import java.net.URL
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 
 private const val TAG = "NuvioPlayer"
 private const val PLAYER_DIAGNOSTIC_TAG = "NuvioPlayerDiag"
@@ -257,6 +263,7 @@ private fun ExoPlayerSurface(
     var decoderPriorityOverride by remember(playerSourceKey) { mutableStateOf<Int?>(null) }
     var fallbackStartPositionMs by remember(playerSourceKey) { mutableStateOf<Long?>(null) }
     val effectiveDecoderPriority = decoderPriorityOverride ?: playerSettings.decoderPriority
+    val volumeBoostAudioProcessor = remember(playerSourceKey) { VolumeBoostAudioProcessor() }
 
     val initialMediaItem = remember(playerSourceKey, externalSubtitles) {
         val subtitleConfigs = externalSubtitles.mapNotNull { subtitle ->
@@ -342,6 +349,7 @@ private fun ExoPlayerSurface(
             shouldNormalizeCuePositionProvider = {
                 latestExternalSubtitleMimeType.value == MimeTypes.TEXT_VTT
             },
+            volumeBoostAudioProcessor = volumeBoostAudioProcessor,
         )
             .setExtensionRendererMode(effectiveDecoderPriority)
             .setEnableDecoderFallback(true)
@@ -700,6 +708,27 @@ private fun ExoPlayerSurface(
 
                 override fun setPlaybackSpeed(speed: Float) {
                     exoPlayer.setPlaybackSpeed(speed)
+                }
+
+                override fun currentPlayerVolume(): PlayerAudioLevel {
+                    val current = volumeBoostAudioProcessor.gain.coerceIn(0f, 2f)
+                    return PlayerAudioLevel(
+                        fraction = current,
+                        isMuted = current <= 0.001f,
+                    )
+                }
+
+                override fun setPlayerVolume(level: Float): PlayerAudioLevel {
+                    val target = level.coerceIn(0f, 2f)
+                    // Keep ExoPlayer's own volume at unity and apply gain in the PCM audio processor.
+                    // ExoPlayer#setVolume is effectively a normal 0..1 output volume control on many devices,
+                    // so values above 1 may not create audible amplification.
+                    exoPlayer.volume = 1f
+                    volumeBoostAudioProcessor.gain = target
+                    return PlayerAudioLevel(
+                        fraction = target,
+                        isMuted = target <= 0.001f,
+                    )
                 }
 
                 override fun updateNowPlayingMetadata(info: PlayerNowPlayingInfo) {
@@ -1795,11 +1824,59 @@ private fun ExoPlayer.logCurrentTracks(context: String) {
 }
 
 @androidx.annotation.OptIn(UnstableApi::class)
+private class VolumeBoostAudioProcessor : BaseAudioProcessor() {
+    @Volatile
+    var gain: Float = 1f
+        set(value) {
+            field = value.coerceIn(0f, 2f)
+        }
+
+    override fun onConfigure(inputAudioFormat: AudioProcessor.AudioFormat): AudioProcessor.AudioFormat {
+        return if (inputAudioFormat.encoding == C.ENCODING_PCM_16BIT) {
+            inputAudioFormat
+        } else {
+            AudioProcessor.AudioFormat.NOT_SET
+        }
+    }
+
+    override fun queueInput(inputBuffer: ByteBuffer) {
+        val inputSize = inputBuffer.remaining()
+        val outputBuffer = replaceOutputBuffer(inputSize).order(ByteOrder.nativeOrder())
+        val input = inputBuffer.order(ByteOrder.nativeOrder())
+        val localGain = gain
+
+        while (input.remaining() >= 2) {
+            val sample = input.short.toInt()
+            val amplified = (sample * localGain)
+                .toInt()
+                .coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt())
+            outputBuffer.putShort(amplified.toShort())
+        }
+
+        input.position(input.limit())
+        outputBuffer.flip()
+    }
+}
+
+@androidx.annotation.OptIn(UnstableApi::class)
 private class SubtitleOffsetRenderersFactory(
     context: Context,
     private val subtitleDelayUsProvider: () -> Long,
     private val shouldNormalizeCuePositionProvider: () -> Boolean,
+    private val volumeBoostAudioProcessor: VolumeBoostAudioProcessor,
 ) : DefaultRenderersFactory(context) {
+    override fun buildAudioSink(
+        context: Context,
+        enableFloatOutput: Boolean,
+        enableAudioTrackPlaybackParams: Boolean,
+    ): AudioSink? {
+        return DefaultAudioSink.Builder(context)
+            .setEnableFloatOutput(false)
+            .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
+            .setAudioProcessors(arrayOf(volumeBoostAudioProcessor))
+            .build()
+    }
+
     override fun buildTextRenderers(
         context: Context,
         output: TextOutput,

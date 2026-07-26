@@ -121,6 +121,7 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
             )
             .playerSurfaceDragGestures(
                 gestureController = gestureController,
+                playerController = playerController,
                 layoutSize = layoutSize,
                 sideGestureSystemEdgeExclusionPx = sideGestureSystemEdgeExclusionPx,
                 playerControlsLockedState = gestureCallbacks.playerControlsLocked,
