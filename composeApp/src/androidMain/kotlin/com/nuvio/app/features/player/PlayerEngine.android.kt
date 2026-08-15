@@ -56,8 +56,8 @@ import androidx.media3.exoplayer.Renderer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MergingMediaSource
 import androidx.media3.exoplayer.text.TextOutput
-import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.extractor.DefaultExtractorsFactory
+import androidx.media3.extractor.text.DefaultSubtitleParserFactory
 import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory
 import androidx.media3.extractor.ts.TsExtractor
 import androidx.media3.ui.AspectRatioFrameLayout
@@ -71,6 +71,8 @@ import `is`.xyz.mpv.MPV
 import `is`.xyz.mpv.MPVNode
 import `is`.xyz.mpv.Utils
 import io.github.peerless2012.ass.media.widget.AssSubtitleView
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlin.math.roundToInt
@@ -78,6 +80,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -256,6 +260,8 @@ private fun ExoPlayerSurface(
     var selectedExternalSubtitleMimeType by remember(playerSourceKey) { mutableStateOf<String?>(null) }
     val latestSubtitleDelayMs = rememberUpdatedState(subtitleDelayMs)
     val latestExternalSubtitleMimeType = rememberUpdatedState(selectedExternalSubtitleMimeType)
+    val dynamicAddonSubtitleState = remember(playerSourceKey) { DynamicAddonSubtitleState() }
+    val defaultSubtitleParserFactory = remember(playerSourceKey) { DefaultSubtitleParserFactory() }
     var playerViewRef by remember { mutableStateOf<PlayerView?>(null) }
     var videoAspectRatio by remember(playerSourceKey) { mutableStateOf(0f) }
     val latestVideoAspectRatio = rememberUpdatedState(videoAspectRatio)
@@ -303,7 +309,7 @@ private fun ExoPlayerSurface(
         useYoutubeChunkedPlayback,
         externalSubtitles,
     ) {
-        PlatformPlaybackDataSourceFactory.create(
+        val platformFactory = PlatformPlaybackDataSourceFactory.create(
             context = context,
             defaultRequestHeaders = sanitizedSourceHeaders,
             defaultResponseHeaders = sanitizedSourceResponseHeaders,
@@ -311,23 +317,46 @@ private fun ExoPlayerSurface(
             useLongReadTimeout = isLoopbackPlaybackSource(sourceUrl),
             externalSubtitles = externalSubtitles,
         )
+        platformFactory
     }
 
     fun ExoPlayer.setPlaybackMediaItem(videoMediaItem: MediaItem, startPositionMs: Long? = null) {
-        if (!sourceAudioUrl.isNullOrBlank()) {
-            val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory, extractorsFactory)
-            val videoSource = mediaSourceFactory.createMediaSource(videoMediaItem)
+        val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory, extractorsFactory)
+            .setSubtitleParserFactory(
+                getSubtitleParserFactoryCompat() ?: defaultSubtitleParserFactory,
+            )
+        val videoSource = mediaSourceFactory.createMediaSource(videoMediaItem)
+        val dynamicSubtitleSource = DynamicAddonSubtitleMediaSource(dynamicAddonSubtitleState)
+        val mergedSource = if (!sourceAudioUrl.isNullOrBlank()) {
             val audioSource = mediaSourceFactory.createMediaSource(playbackMediaItemFromUrl(sourceAudioUrl))
-            val mergedSource = MergingMediaSource(videoSource, audioSource)
-            if (startPositionMs != null) {
-                setMediaSource(mergedSource, startPositionMs.coerceAtLeast(0L))
-            } else {
-                setMediaSource(mergedSource)
-            }
-        } else if (startPositionMs != null) {
-            setMediaItem(videoMediaItem, startPositionMs.coerceAtLeast(0L))
+            MergingMediaSource(videoSource, audioSource, dynamicSubtitleSource)
         } else {
-            setMediaItem(videoMediaItem)
+            MergingMediaSource(videoSource, dynamicSubtitleSource)
+        }
+        if (startPositionMs != null) {
+            setMediaSource(mergedSource, startPositionMs.coerceAtLeast(0L))
+        } else {
+            setMediaSource(mergedSource)
+        }
+    }
+
+    val trackSelector = remember(context, playerSourceKey) {
+        DynamicAddonSubtitleTrackSelector(context, dynamicAddonSubtitleState).apply {
+            setParameters(
+                buildUponParameters()
+                    .setAllowInvalidateSelectionsOnRendererCapabilitiesChange(true)
+            )
+            if (playerSettings.tunnelingEnabled) {
+                setParameters(buildUponParameters().setTunnelingEnabled(true))
+            }
+        }
+    }
+    DisposableEffect(dynamicAddonSubtitleState, trackSelector) {
+        dynamicAddonSubtitleState.setOnStreamRevisionChanged(
+            trackSelector::invalidateAddonSubtitleSelection,
+        )
+        onDispose {
+            dynamicAddonSubtitleState.setOnStreamRevisionChanged(null)
         }
     }
 
@@ -355,16 +384,6 @@ private fun ExoPlayerSurface(
             .setEnableDecoderFallback(true)
             .setMapDV7ToHevc(playerSettings.mapDV7ToHevc)
 
-        val trackSelector = DefaultTrackSelector(context).apply {
-            setParameters(
-                buildUponParameters()
-                    .setAllowInvalidateSelectionsOnRendererCapabilitiesChange(true)
-            )
-            if (playerSettings.tunnelingEnabled) {
-                setParameters(buildUponParameters().setTunnelingEnabled(true))
-            }
-        }
-
         val loadControl = DefaultLoadControl.Builder()
             .setTargetBufferBytes(100 * 1024 * 1024)
             .setBufferDurationsMs(
@@ -384,13 +403,13 @@ private fun ExoPlayerSurface(
                     renderType = libassRenderType.toAssRenderType(),
                     dataSourceFactory = dataSourceFactory,
                     extractorsFactory = extractorsFactory,
-                    renderersFactory = renderersFactory
+                    renderersFactory = renderersFactory,
                 )
         } else {
             val mediaSourceFactory = DefaultMediaSourceFactory(
                 dataSourceFactory,
                 extractorsFactory,
-            )
+            ).setSubtitleParserFactory(defaultSubtitleParserFactory)
 
             ExoPlayer.Builder(context)
                 .setRenderersFactory(renderersFactory)
@@ -401,6 +420,11 @@ private fun ExoPlayerSurface(
         }
 
         player
+    }
+    val dynamicAddonSubtitleLoader = remember(exoPlayer, dataSourceFactory) {
+        DynamicAddonSubtitleLoader(dataSourceFactory) {
+            exoPlayer.getSubtitleParserFactoryCompat() ?: defaultSubtitleParserFactory
+        }
     }
 
     val nowPlayingController = remember(context, exoPlayer) {
@@ -471,6 +495,40 @@ private fun ExoPlayerSurface(
         val selection = exoPlayer.captureSelectedTrack(C.TRACK_TYPE_AUDIO) ?: return
         pendingAudioTrackSelection.add(selection)
         Log.d(TAG, "$reason: preserving audio track index=${selection.index} id=${selection.id}")
+    }
+
+    fun selectDynamicAddonSubtitleTrack() {
+        selectedExternalSubtitleMimeType = null
+        exoPlayer.selectTrackByPredicate(
+            trackType = C.TRACK_TYPE_TEXT,
+            targetDescription = "id=$DYNAMIC_ADDON_SUBTITLE_TRACK_ID",
+        ) { _, format ->
+            matchesAddonSubtitleTrackId(format.id, DYNAMIC_ADDON_SUBTITLE_TRACK_ID)
+        }
+    }
+
+    fun cancelAddonSubtitleLoad() {
+        subtitleSelectionJob?.cancel()
+        dynamicAddonSubtitleLoader.cancelActive()
+    }
+
+    fun selectAddonSubtitle(trackId: String, url: String) {
+        cancelAddonSubtitleLoad()
+        val request = dynamicAddonSubtitleState.beginSelection(trackId, url)
+        selectDynamicAddonSubtitleTrack()
+        subtitleSelectionJob = coroutineScope.launch {
+            val content = try {
+                dynamicAddonSubtitleLoader.load(request)
+            } catch (_: CancellationException) {
+                return@launch
+            } catch (error: Exception) {
+                Log.w(TAG, "Unable to load addon subtitle", error)
+                return@launch
+            }
+            if (dynamicAddonSubtitleState.publish(request, content)) {
+                selectedExternalSubtitleMimeType = content.mimeType
+            }
+        }
     }
 
     DisposableEffect(exoPlayer) {
@@ -637,12 +695,32 @@ private fun ExoPlayerSurface(
                 if (pendingSubtitleTrackIndex.isNotEmpty() && tracks.groups.isNotEmpty()) {
                     val idx = pendingSubtitleTrackIndex.removeAt(0)
                     Log.d(TAG, "onTracksChanged: applying pending subtitle selection index=$idx")
-                    exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
-                        .buildUpon()
-                        .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, idx < 0)
-                        .build()
-                    if (idx >= 0) {
+                    if (idx < 0) {
+                        exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+                            .buildUpon()
+                            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+                            .build()
+                    } else {
                         exoPlayer.selectTrackByIndex(C.TRACK_TYPE_TEXT, idx)
+                    }
+                }
+                dynamicAddonSubtitleState.snapshot().request?.let {
+                    val dynamicTrackIsSelected = tracks.groups.any { group ->
+                        group.type == C.TRACK_TYPE_TEXT &&
+                            (0 until group.length).any { formatIndex ->
+                                matchesAddonSubtitleTrackId(
+                                    group.getTrackFormat(formatIndex).id,
+                                    DYNAMIC_ADDON_SUBTITLE_TRACK_ID,
+                                )
+                            } && group.isSelected
+                    }
+                    if (!dynamicTrackIsSelected) {
+                        exoPlayer.selectTrackByPredicate(
+                            trackType = C.TRACK_TYPE_TEXT,
+                            targetDescription = "id=$DYNAMIC_ADDON_SUBTITLE_TRACK_ID",
+                        ) { _, format ->
+                            matchesAddonSubtitleTrackId(format.id, DYNAMIC_ADDON_SUBTITLE_TRACK_ID)
+                        }
                     }
                 }
                 dispatchExoPlayerSnapshot()
@@ -655,7 +733,7 @@ private fun ExoPlayerSurface(
             PlayerPictureInPictureManager.registerTogglePlaybackCallback(null)
             exoPlayer.removeListener(listener)
             playerViewRef?.keepScreenOn = false
-            subtitleSelectionJob?.cancel()
+            cancelAddonSubtitleLoad()
         }
     }
 
@@ -743,70 +821,35 @@ private fun ExoPlayerSurface(
                 }
 
                 override fun selectSubtitleTrack(index: Int) {
-                    Log.d(TAG, "selectSubtitleTrack: index=$index")
+                    cancelAddonSubtitleLoad()
+                    dynamicAddonSubtitleState.clear()
+                    selectedExternalSubtitleMimeType = null
                     if (index < 0) {
                         Log.d(TAG, "selectSubtitleTrack: disabling text tracks")
                         exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
                             .buildUpon()
                             .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+                            .clearOverridesOfType(C.TRACK_TYPE_TEXT)
                             .build()
                         return
                     }
-                    exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
-                        .buildUpon()
-                        .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
-                        .build()
                     exoPlayer.selectTrackByIndex(C.TRACK_TYPE_TEXT, index)
                     Log.d(TAG, "selectSubtitleTrack: after selection, textDisabled=${exoPlayer.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT)}")
                     exoPlayer.logCurrentTracks("after selectSubtitleTrack")
                 }
 
                 override fun setSubtitleUri(url: String) {
-                    Log.d(TAG, "setSubtitleUri: url=$url")
-                    subtitleSelectionJob?.cancel()
-                    subtitleSelectionJob = coroutineScope.launch {
-                        val currentPosition = exoPlayer.currentPosition
-                        val wasPlaying = exoPlayer.isPlaying
-                        val currentMediaItem = exoPlayer.currentMediaItem ?: run {
-                            Log.e(TAG, "setSubtitleUri: currentMediaItem is null, aborting")
-                            return@launch
-                        }
-                        preserveAudioSelectionForReload("setSubtitleUri")
-                        val resolvedMime = withContext(Dispatchers.IO) {
-                            resolveSubtitleMimeType(url)
-                        }
-                        selectedExternalSubtitleMimeType = resolvedMime
-                        Log.d(TAG, "setSubtitleUri: currentPosition=$currentPosition, wasPlaying=$wasPlaying")
-                        val subtitleConfig = MediaItem.SubtitleConfiguration.Builder(Uri.parse(url))
-                            .setMimeType(resolvedMime)
-                            .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
-                            .setRoleFlags(C.ROLE_FLAG_SUBTITLE)
-                            .build()
-                        Log.d(
-                            TAG,
-                            "setSubtitleUri: subtitleConfig built, uri=${subtitleConfig.uri}, mime=${subtitleConfig.mimeType}, selectionFlags=${subtitleConfig.selectionFlags}"
-                        )
-                        val newMediaItem = currentMediaItem.buildUpon()
-                            .setSubtitleConfigurations(listOf(subtitleConfig))
-                            .build()
-                        Log.d(TAG, "setSubtitleUri: newMediaItem subtitleConfigs count=${newMediaItem.localConfiguration?.subtitleConfigurations?.size}")
-                        exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
-                            .buildUpon()
-                            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
-                            .clearOverridesOfType(C.TRACK_TYPE_TEXT)
-                            .setPreferredTextRoleFlags(C.ROLE_FLAG_SUBTITLE)
-                            .build()
-                        Log.d(TAG, "setSubtitleUri: track params set before prepare, textDisabled=${exoPlayer.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT)}")
-                        exoPlayer.setPlaybackMediaItem(newMediaItem, currentPosition)
-                        exoPlayer.prepare()
-                        exoPlayer.playWhenReady = wasPlaying
-                        Log.d(TAG, "setSubtitleUri: prepare() called, waiting for STATE_READY")
-                    }
+                    selectAddonSubtitle(buildAddonSubtitleTrackId(url), url)
+                }
+
+                override fun selectAddonSubtitle(subtitle: AddonSubtitle) {
+                    selectAddonSubtitle(buildAddonSubtitleTrackId(subtitle), subtitle.url)
                 }
 
                 override fun clearExternalSubtitle() {
                     Log.d(TAG, "clearExternalSubtitle called")
-                    subtitleSelectionJob?.cancel()
+                    cancelAddonSubtitleLoad()
+                    dynamicAddonSubtitleState.clear()
                     selectedExternalSubtitleMimeType = null
                     val currentPosition = exoPlayer.currentPosition
                     val wasPlaying = exoPlayer.isPlaying
@@ -823,7 +866,8 @@ private fun ExoPlayerSurface(
 
                 override fun clearExternalSubtitleAndSelect(trackIndex: Int) {
                     Log.d(TAG, "clearExternalSubtitleAndSelect: trackIndex=$trackIndex")
-                    subtitleSelectionJob?.cancel()
+                    cancelAddonSubtitleLoad()
+                    dynamicAddonSubtitleState.clear()
                     selectedExternalSubtitleMimeType = null
                     pendingSubtitleTrackIndex.clear()
                     pendingSubtitleTrackIndex.add(trackIndex)
@@ -1130,7 +1174,7 @@ private fun LibmpvPlayerSurface(
 
     LaunchedEffect(playerViewRef, sourceUrl, sourceAudioUrl, sanitizedSourceHeaders, externalSubtitles) {
         val view = playerViewRef ?: return@LaunchedEffect
-        onControllerReady(view.controller(context, nowPlayingController))
+        onControllerReady(view.controller(context, nowPlayingController, coroutineScope))
     }
 
     LaunchedEffect(playerViewRef) {
@@ -1194,6 +1238,11 @@ private class NuvioLibmpvView(
     private var currentSourceAudioUrl: String? = null
     private var currentRequestHeaders: Map<String, String> = emptyMap()
     private var currentExternalSubtitles: List<com.nuvio.app.features.streams.StreamSubtitle> = emptyList()
+    private var pendingAddonSubtitleTrackId: String? = null
+    private val loadingAddonSubtitleTrackIds = mutableSetOf<String>()
+    private val subtitleSelectionMutex = Mutex()
+    @Volatile private var subtitleSelectionGeneration = 0L
+    @Volatile private var subtitleSourceGeneration = 0L
 
     override fun initOptions() {
         setVo(videoOutput.mpvValue)
@@ -1207,6 +1256,8 @@ private class NuvioLibmpvView(
         mpv.setOptionString("tls-ca-file", "${context.filesDir.path}/cacert.pem")
         mpv.setOptionString("demuxer-max-bytes", "${libmpvCacheBytes()}").logIfMpvError("demuxer-max-bytes")
         mpv.setOptionString("demuxer-max-back-bytes", "${libmpvCacheBytes()}").logIfMpvError("demuxer-max-back-bytes")
+        mpv.setOptionString("demuxer-cache-unselected-subtitles", "15")
+            .logIfMpvError("demuxer-cache-unselected-subtitles")
         mpv.setOptionString("vd-lavc-film-grain", "cpu")
         mpv.setPropertyBoolean("keep-open", true)
         mpv.setPropertyBoolean("input-default-bindings", true)
@@ -1258,6 +1309,10 @@ private class NuvioLibmpvView(
 
     private fun loadCurrentSource(playWhenReady: Boolean) {
         val sourceUrl = currentSourceUrl ?: return
+        subtitleSourceGeneration += 1
+        subtitleSelectionGeneration += 1
+        pendingAddonSubtitleTrackId = null
+        loadingAddonSubtitleTrackIds.clear()
         applyRequestHeaders(currentRequestHeaders)
         setPaused(!playWhenReady)
         mpv.command("loadfile", sourceUrl, "replace")
@@ -1342,6 +1397,7 @@ private class NuvioLibmpvView(
     fun controller(
         context: Context,
         nowPlayingController: AndroidPlayerNowPlayingController?,
+        coroutineScope: CoroutineScope,
     ): PlayerEngineController =
         object : PlayerEngineController {
             override fun play() = setPaused(false)
@@ -1384,7 +1440,7 @@ private class NuvioLibmpvView(
                 }
 
             override fun getSubtitleTracks(): List<SubtitleTrack> =
-                extractLibmpvTracks(context, type = "sub").mapIndexed { index, track ->
+                extractInternalSubtitleTracks(context).mapIndexed { index, track ->
                     SubtitleTrack(
                         index = index,
                         id = track.id.toString(),
@@ -1406,21 +1462,37 @@ private class NuvioLibmpvView(
             }
 
             override fun selectSubtitleTrack(index: Int) {
+                pendingAddonSubtitleTrackId = null
                 if (index < 0) {
-                    mpv.setPropertyString("sid", "no")
+                    requestSubtitleSelection(trackId = null, coroutineScope)
                 } else {
-                    extractLibmpvTracks(context, type = "sub").getOrNull(index)?.let { track ->
-                        mpv.setPropertyInt("sid", track.id)
+                    extractInternalSubtitleTracks(context).getOrNull(index)?.let { track ->
+                        requestSubtitleSelection(track.id, coroutineScope)
                     }
                 }
             }
 
             override fun setSubtitleUri(url: String) {
-                mpv.command("sub-add", url, "select")
+                selectAddonSubtitle(
+                    url = url,
+                    trackId = buildAddonSubtitleTrackId(url),
+                    language = "",
+                    coroutineScope = coroutineScope,
+                )
+            }
+
+            override fun selectAddonSubtitle(subtitle: AddonSubtitle) {
+                selectAddonSubtitle(
+                    url = subtitle.url,
+                    trackId = buildAddonSubtitleTrackId(subtitle),
+                    language = subtitle.language,
+                    coroutineScope = coroutineScope,
+                )
             }
 
             override fun clearExternalSubtitle() {
-                mpv.setPropertyString("sid", "no")
+                pendingAddonSubtitleTrackId = null
+                requestSubtitleSelection(trackId = null, coroutineScope)
             }
 
             override fun clearExternalSubtitleAndSelect(trackIndex: Int) {
@@ -1449,6 +1521,76 @@ private class NuvioLibmpvView(
             }
         }
 
+    private fun extractInternalSubtitleTracks(context: Context): List<LibmpvTrack> =
+        extractLibmpvTracks(context, type = "sub").filterNot { track ->
+            isLibmpvAddonSubtitleTrack(track.title, track.isExternal)
+        }
+
+    private fun selectAddonSubtitle(
+        url: String,
+        trackId: String,
+        language: String,
+        coroutineScope: CoroutineScope,
+    ) {
+        val attachedTrack = extractLibmpvTracks(context, type = "sub").firstOrNull { track ->
+            isLibmpvAddonSubtitleTrack(track.title, track.isExternal) &&
+                (track.title == trackId || track.externalFilename == url)
+        }
+        if (attachedTrack != null) {
+            pendingAddonSubtitleTrackId = null
+            requestSubtitleSelection(attachedTrack.id, coroutineScope)
+            return
+        }
+
+        pendingAddonSubtitleTrackId = trackId
+        subtitleSelectionGeneration += 1
+        if (!loadingAddonSubtitleTrackIds.add(trackId)) return
+        val sourceGeneration = subtitleSourceGeneration
+        coroutineScope.launch(Dispatchers.IO) {
+            val loaded = subtitleSelectionMutex.withLock {
+                if (
+                    sourceGeneration != subtitleSourceGeneration ||
+                    pendingAddonSubtitleTrackId != trackId
+                ) {
+                    return@withLock false
+                }
+                runCatching {
+                    mpv.command("sub-add", url, "auto", trackId, language)
+                }.isSuccess
+            }
+            withContext(Dispatchers.Main.immediate) {
+                loadingAddonSubtitleTrackIds.remove(trackId)
+                if (
+                    !loaded ||
+                    sourceGeneration != subtitleSourceGeneration ||
+                    pendingAddonSubtitleTrackId != trackId
+                ) {
+                    return@withContext
+                }
+                val loadedTrack = extractLibmpvTracks(context, type = "sub").firstOrNull { track ->
+                    isLibmpvAddonSubtitleTrack(track.title, track.isExternal) && track.title == trackId
+                } ?: return@withContext
+                pendingAddonSubtitleTrackId = null
+                requestSubtitleSelection(loadedTrack.id, coroutineScope)
+            }
+        }
+    }
+
+    private fun requestSubtitleSelection(trackId: Int?, coroutineScope: CoroutineScope) {
+        val generation = ++subtitleSelectionGeneration
+        coroutineScope.launch(Dispatchers.IO) {
+            subtitleSelectionMutex.withLock {
+                if (generation != subtitleSelectionGeneration) return@withLock
+                if (trackId == null) {
+                    mpv.setPropertyString("sid", "no")
+                } else {
+                    mpv.setPropertyBoolean("sub-visibility", true)
+                    mpv.setPropertyInt("sid", trackId)
+                }
+            }
+        }
+    }
+
     private fun applyRequestHeaders(headers: Map<String, String>) {
         val userAgent = headers.entries.firstOrNull { it.key.equals("User-Agent", ignoreCase = true) }?.value
         if (!userAgent.isNullOrBlank()) {
@@ -1467,16 +1609,21 @@ private class NuvioLibmpvView(
             .filter { node -> node.nodeString("type") == type }
             .mapIndexedNotNull { index, node ->
                 val id = node.nodeInt("id") ?: return@mapIndexedNotNull null
-                val rawLabel = node.nodeString("title")
-                    ?: node.nodeString("external-filename")?.substringAfterLast('/')
+                val title = node.nodeString("title")
+                val externalFilename = node.nodeString("external-filename")
+                val rawLabel = title
+                    ?: externalFilename?.substringAfterLast('/')
                     ?: node.nodeString("codec")
                 val language = node.nodeString("lang") ?: normalizeLanguageCode(rawLabel)
                 val label = rawLabel?.takeIf { it.isNotBlank() }
                     ?: runBlocking { getString(Res.string.compose_player_track_number, index + 1) }
                 LibmpvTrack(
                     id = id,
+                    title = title,
+                    externalFilename = externalFilename,
                     label = label,
                     language = language,
+                    isExternal = node.nodeBoolean("external") ?: false,
                     isSelected = node.nodeBoolean("selected") ?: false,
                     isForced = inferForcedSubtitleTrack(
                         label = label,
@@ -1491,8 +1638,11 @@ private class NuvioLibmpvView(
 
 private data class LibmpvTrack(
     val id: Int,
+    val title: String?,
+    val externalFilename: String?,
     val label: String,
     val language: String?,
+    val isExternal: Boolean,
     val isSelected: Boolean,
     val isForced: Boolean,
 )
@@ -1620,7 +1770,7 @@ private fun ExoPlayer.captureSelectedTrack(trackType: Int): TrackSelectionSnapsh
 private fun ExoPlayer.restoreTrackSelection(selection: TrackSelectionSnapshot): Boolean {
     selection.id?.takeIf { it.isNotBlank() }?.let { id ->
         val restored = selectTrackByPredicate(selection.trackType, "id=$id") { _, format ->
-            format.id == id
+            normalizeMedia3MergedTrackId(format.id) == normalizeMedia3MergedTrackId(id)
         }
         if (restored) {
             return true
@@ -1790,30 +1940,41 @@ private fun ExoPlayer.extractSubtitleTracks(context: Context): List<SubtitleTrac
     var idx = 0
     for (group in currentTracks.groups) {
         if (group.type != C.TRACK_TYPE_TEXT) continue
-        val format = group.mediaTrackGroup.getFormat(0)
-        val hasForcedSelectionFlag = (format.selectionFlags and C.SELECTION_FLAG_FORCED) != 0
-        tracks.add(
-            SubtitleTrack(
-                index = idx,
-                id = format.id ?: idx.toString(),
-                label = trackNameProvider.getTrackName(format),
-                language = format.language,
-                isSelected = group.isSelected,
-                isForced = inferForcedSubtitleTrack(
-                    label = format.label,
+        for (formatIndex in 0 until group.length) {
+            if (!group.isTrackSupported(formatIndex)) continue
+            val format = group.getTrackFormat(formatIndex)
+            if (isAddonSubtitleTrackId(format.id)) continue
+            val hasForcedSelectionFlag = (format.selectionFlags and C.SELECTION_FLAG_FORCED) != 0
+            tracks.add(
+                SubtitleTrack(
+                    index = idx,
+                    id = format.id ?: idx.toString(),
+                    label = trackNameProvider.getTrackName(format),
                     language = format.language,
-                    trackId = format.id,
-                    hasForcedSelectionFlag = hasForcedSelectionFlag,
-                ),
+                    isSelected = group.isTrackSelected(formatIndex),
+                    isForced = inferForcedSubtitleTrack(
+                        label = format.label,
+                        language = format.language,
+                        trackId = format.id,
+                        hasForcedSelectionFlag = hasForcedSelectionFlag,
+                    ),
+                )
             )
-        )
-        idx++
+            idx++
+        }
     }
     return tracks
 }
 
 private fun ExoPlayer.selectTrackByIndex(trackType: Int, targetIndex: Int): Boolean {
-    return selectTrackByPredicate(trackType, "index=$targetIndex") { idx, _ ->
+    return selectTrackByPredicate(
+        trackType = trackType,
+        targetDescription = "index=$targetIndex",
+        formatFilter = { format ->
+            trackType != C.TRACK_TYPE_TEXT ||
+                !isAddonSubtitleTrackId(format.id)
+        },
+    ) { idx, _ ->
         idx == targetIndex
     }
 }
@@ -1821,6 +1982,7 @@ private fun ExoPlayer.selectTrackByIndex(trackType: Int, targetIndex: Int): Bool
 private fun ExoPlayer.selectTrackByPredicate(
     trackType: Int,
     targetDescription: String,
+    formatFilter: (Format) -> Boolean = { true },
     predicate: (index: Int, format: Format) -> Boolean,
 ): Boolean {
     val typeName = if (trackType == C.TRACK_TYPE_AUDIO) "AUDIO" else "TEXT"
@@ -1828,20 +1990,34 @@ private fun ExoPlayer.selectTrackByPredicate(
     var idx = 0
     for (group in currentTracks.groups) {
         if (group.type != trackType) continue
-        val format = group.mediaTrackGroup.getFormat(0)
-        if (!predicate(idx, format)) {
-            idx++
-            continue
+        val formatIndices = if (trackType == C.TRACK_TYPE_TEXT) {
+            0 until group.length
+        } else {
+            0 until minOf(group.length, 1)
         }
-        Log.d(TAG, "selectTrack: found group at idx=$idx, format.id=${format.id}, lang=${format.language}, label=${format.label}")
-        trackSelectionParameters = trackSelectionParameters
-            .buildUpon()
-            .setOverrideForType(
-                TrackSelectionOverride(group.mediaTrackGroup, listOf(0))
+        for (formatIndex in formatIndices) {
+            if (trackType == C.TRACK_TYPE_TEXT && !group.isTrackSupported(formatIndex)) continue
+            val format = group.getTrackFormat(formatIndex)
+            if (!formatFilter(format)) continue
+            if (!predicate(idx, format)) {
+                idx++
+                continue
+            }
+            Log.d(
+                TAG,
+                "selectTrack: found group at idx=$idx, formatIndex=$formatIndex, " +
+                    "format.id=${format.id}, lang=${format.language}, label=${format.label}",
             )
-            .build()
-        Log.d(TAG, "selectTrack: override applied")
-        return true
+            trackSelectionParameters = trackSelectionParameters
+                .buildUpon()
+                .setTrackTypeDisabled(trackType, false)
+                .setOverrideForType(
+                    TrackSelectionOverride(group.mediaTrackGroup, listOf(formatIndex))
+                )
+                .build()
+            Log.d(TAG, "selectTrack: override applied")
+            return true
+        }
     }
     Log.w(TAG, "selectTrack: no group found for type=$typeName target=$targetDescription (total groups scanned=$idx)")
     return false
