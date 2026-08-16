@@ -182,9 +182,11 @@ import com.nuvio.app.features.player.PlayerPlaybackSnapshot
 import com.nuvio.app.features.player.ExternalPlayerIntentResult
 import com.nuvio.app.features.player.ExternalPlayerPlatform
 import com.nuvio.app.features.player.ExternalPlayerPlaybackRequest
+import com.nuvio.app.features.player.SubtitleInput
 import com.nuvio.app.features.player.rememberExternalPlayerLauncher
 import com.nuvio.app.features.player.prepareExternalPlayerLaunch
 import com.nuvio.app.features.player.SubtitleLanguageOption
+import com.nuvio.app.features.streams.StreamSubtitle
 import com.nuvio.app.features.player.sanitizePlaybackHeaders
 import com.nuvio.app.features.player.sanitizePlaybackResponseHeaders
 import com.nuvio.app.features.profiles.AvatarRepository
@@ -406,6 +408,14 @@ private fun PlayerLaunch.toExternalPlayerPlaybackRequest(): ExternalPlayerPlayba
         season = seasonNumber,
         episode = episodeNumber,
         episodeTitle = episodeTitle,
+        currentSubtitle = currentSubtitle,
+        subtitles = externalSubtitles.map { sub: StreamSubtitle ->
+            SubtitleInput(
+                url = sub.url,
+                name = sub.name ?: sub.language,
+                lang = sub.language
+            )
+        }.takeIf { it.isNotEmpty() }
     )
 
 private enum class AppGateScreen {
@@ -1391,6 +1401,7 @@ private fun MainAppContent(
                 request = baseRequest,
                 type = launch.contentType ?: launch.parentMetaType,
                 videoId = launch.videoId ?: launch.parentMetaId,
+                parentMetaId = launch.parentMetaId,
                 forwardSubtitles = playerSettingsUiState.externalPlayerForwardSubtitles,
                 sendSkipSegments = shouldSendSkipSegments,
                 preferredLanguage = playerSettingsUiState.preferredSubtitleLanguage,
@@ -2979,6 +2990,7 @@ private fun MainAppContent(
                                 parentMetaId = launch.parentMetaId,
                                 parentMetaType = launch.parentMetaType,
                                 initialPositionMs = request.resumePositionMs,
+                                currentSubtitle = request.currentSubtitle,
                             )
                             lastExternalPlayerLaunch = playerLaunch
                             val intentResult = ExternalPlayerPlatform.buildIntent(
