@@ -34,9 +34,21 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlin.math.ln
 import kotlin.math.roundToInt
 
-private const val NUVIO_VOLUME_BOOST_GAIN_MB = 602
+private const val NUVIO_MAX_PLAYER_VOLUME = 2f
+private const val NUVIO_MILLIBELS_PER_DB = 100f
+
+private fun volumeBoostGainMillibels(fraction: Float): Int {
+    val normalized = fraction.coerceIn(1f, NUVIO_MAX_PLAYER_VOLUME)
+    if (normalized <= 1f) return 0
+    // Convert the requested linear gain (1x..2x) to dB for LoudnessEnhancer.
+    // 2x amplitude is approximately +6.02 dB / +602 mB.
+    return (20f * (ln(normalized.toDouble()) / ln(10.0)) * NUVIO_MILLIBELS_PER_DB)
+        .roundToInt()
+        .coerceIn(0, 602)
+}
 
 @Composable
 actual fun LockPlayerToLandscape() {
@@ -168,17 +180,15 @@ private class AndroidPlayerGestureController(
         if (sessionId != attachedAudioSessionId) {
             releaseVolumeBoost()
             val enhancer = runCatching { LoudnessEnhancer(sessionId) }.getOrNull() ?: return
-            if (!runCatching { enhancer.setTargetGain(NUVIO_VOLUME_BOOST_GAIN_MB) }.isSuccess) {
-                runCatching { enhancer.release() }
-                return
-            }
             volumeBoost = enhancer
             attachedAudioSessionId = sessionId
         }
 
-        val shouldBoost = AndroidPlayerVolumeBoost.fraction > 1f
+        val requestedVolume = AndroidPlayerVolumeBoost.fraction.coerceIn(0f, NUVIO_MAX_PLAYER_VOLUME)
+        val gainMillibels = volumeBoostGainMillibels(requestedVolume)
         runCatching {
-            volumeBoost?.enabled = shouldBoost
+            volumeBoost?.setTargetGain(gainMillibels)
+            volumeBoost?.enabled = gainMillibels > 0
         }
     }
 
@@ -227,7 +237,7 @@ private class AndroidPlayerGestureController(
     }
 
     override fun setVolume(level: Float): PlayerAudioLevel {
-        val requestedFraction = level.coerceIn(0f, 2f)
+        val requestedFraction = level.coerceIn(0f, NUVIO_MAX_PLAYER_VOLUME)
         val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
         val targetSystemFraction = requestedFraction.coerceAtMost(1f)
         val targetVolume = (targetSystemFraction * maxVolume.toFloat()).roundToInt().coerceIn(0, maxVolume)
