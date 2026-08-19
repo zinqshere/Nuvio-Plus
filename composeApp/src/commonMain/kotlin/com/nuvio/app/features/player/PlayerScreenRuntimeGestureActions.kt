@@ -134,7 +134,7 @@ internal fun PlayerScreenRuntime.showBrightnessFeedback(level: Float) {
 }
 
 internal fun PlayerScreenRuntime.showVolumeFeedback(level: PlayerAudioLevel) {
-    val percentage = (level.fraction.coerceIn(0f, 1f) * 100f).roundToInt()
+    val percentage = (level.fraction.coerceIn(0f, 2f) * 100f).roundToInt()
     showGestureFeedback(
         GestureFeedbackState(
             messageRes = if (level.isMuted) {
