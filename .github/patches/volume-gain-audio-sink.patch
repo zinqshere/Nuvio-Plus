@@ -1,0 +1,31 @@
+--- a/composeApp/src/androidMain/kotlin/com/nuvio/app/features/player/PlayerEngine.android.kt
++++ b/composeApp/src/androidMain/kotlin/com/nuvio/app/features/player/PlayerEngine.android.kt
+@@ -50,6 +50,7 @@
+ import androidx.media3.datasource.TransferListener
+ import androidx.media3.exoplayer.DefaultLoadControl
+ import androidx.media3.exoplayer.DefaultRenderersFactory
++import androidx.media3.exoplayer.audio.DefaultAudioSink
+ import androidx.media3.exoplayer.ExoPlayer
+ import androidx.media3.exoplayer.ForwardingRenderer
+ import androidx.media3.exoplayer.Renderer
+@@ -1919,6 +1920,20 @@
+     private val shouldNormalizeCuePositionProvider: () -> Boolean,
+     private val videoBoundsFractionProvider: () -> RectF?,
+ ) : DefaultRenderersFactory(context) {
++    override fun buildAudioSink(
++        context: Context,
++        enableFloatOutput: Boolean,
++        enableAudioOutputPlaybackParams: Boolean,
++    ): DefaultAudioSink {
++        return DefaultAudioSink.Builder(context)
++            .setEnableFloatOutput(enableFloatOutput)
++            .setEnableAudioOutputPlaybackParams(enableAudioOutputPlaybackParams)
++            .setAudioProcessors(
++                arrayOf(NuvioVolumeGainAudioProcessor()),
++            )
++            .build()
++    }
++
+     override fun buildTextRenderers(
+         context: Context,
+         output: TextOutput,
