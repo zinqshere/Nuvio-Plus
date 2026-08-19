@@ -35,53 +35,14 @@ jobs:
           git -C MPVKit config submodule.recurse false
           test "$(git -C MPVKit rev-parse HEAD)" = "${MPVKIT_SHA}"
 
-      - name: Integrate PCM volume-gain audio pipeline
+      - name: Apply PCM volume-gain audio pipeline patch
         shell: bash
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-
-          path = Path("composeApp/src/androidMain/kotlin/com/nuvio/app/features/player/PlayerEngine.android.kt")
-          text = path.read_text(encoding="utf-8")
-
-          import_anchor = "import androidx.media3.exoplayer.DefaultRenderersFactory\n"
-          import_line = "import androidx.media3.exoplayer.audio.DefaultAudioSink\n"
-          if import_line not in text:
-              if import_anchor not in text:
-                  raise SystemExit("Could not find DefaultRenderersFactory import anchor")
-              text = text.replace(import_anchor, import_anchor + import_line, 1)
-
-          factory_anchor = """    override fun buildTextRenderers(
-        context: Context,
-        output: TextOutput,
-"""
-          method = """    override fun buildAudioSink(
-        context: Context,
-        enableFloatOutput: Boolean,
-        enableAudioOutputPlaybackParams: Boolean,
-    ): DefaultAudioSink {
-        return DefaultAudioSink.Builder(context)
-            .setEnableFloatOutput(enableFloatOutput)
-            .setAudioProcessors(
-                arrayOf(NuvioVolumeGainAudioProcessor()),
-            )
-            .build()
-    }
-
-"""
-
-          if "NuvioVolumeGainAudioProcessor()" not in text:
-              if factory_anchor not in text:
-                  raise SystemExit("Could not find SubtitleOffsetRenderersFactory text-renderer anchor")
-              text = text.replace(factory_anchor, method + factory_anchor, 1)
-
-          path.write_text(text, encoding="utf-8")
-          PY
+          git apply --check .github/patches/volume-gain-audio-sink.patch
+          git apply .github/patches/volume-gain-audio-sink.patch
           git diff --check
           grep -q "NuvioVolumeGainAudioProcessor" composeApp/src/androidMain/kotlin/com/nuvio/app/features/player/PlayerEngine.android.kt
-          grep -q "buildAudioSink" composeApp/src/androidMain/kotlin/com/nuvio/app/features/player/PlayerEngine.android.kt
-          echo "PCM volume-gain processor integrated into DefaultAudioSink."
 
       - name: Set up Java
         uses: actions/setup-java@v5
