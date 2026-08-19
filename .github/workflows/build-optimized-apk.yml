@@ -1,0 +1,129 @@
+name: Build Optimized APK
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: optimized-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build optimized Nuvio APKs
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          submodules: false
+
+      # The repository pins MPVKit as a git submodule. Do not recursively
+      # initialize its nested submodules; the pinned checkout is sufficient
+      # for the Android build and avoids the stale nested libass dependency.
+      - name: Checkout pinned MPVKit
+        shell: bash
+        run: |
+          set -euo pipefail
+          MPVKIT_SHA="d5cf091c80368bbbc1bbf2d195fbc55d926df888"
+          git clone --no-checkout https://github.com/NuvioMedia/MPVKit.git MPVKit
+          git -C MPVKit checkout --detach "${MPVKIT_SHA}"
+          git -C MPVKit config submodule.recurse false
+          test "$(git -C MPVKit rev-parse HEAD)" = "${MPVKIT_SHA}"
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Prepare Android build configuration
+        shell: bash
+        env:
+          NUVIO_SUPABASE_URL_SECRET: ${{ secrets.NUVIO_SUPABASE_URL }}
+          NUVIO_SUPABASE_ANON_KEY_SECRET: ${{ secrets.NUVIO_SUPABASE_ANON_KEY }}
+          NUVIO_SUPABASE_FALLBACK_URL_SECRET: ${{ secrets.NUVIO_SUPABASE_FALLBACK_URL }}
+        run: |
+          set -euo pipefail
+
+          SDK_DIR="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          if [[ -z "${SDK_DIR}" || ! -d "${SDK_DIR}" ]]; then
+            echo "Android SDK directory was not found." >&2
+            exit 1
+          fi
+
+          # GenerateRuntimeConfigsTask reads these values from local.properties.
+          # Secrets override the public defaults when the repository provides them.
+          NUVIO_SUPABASE_URL="${NUVIO_SUPABASE_URL_SECRET:-https://api.nuvio.tv}"
+          NUVIO_SUPABASE_ANON_KEY="${NUVIO_SUPABASE_ANON_KEY_SECRET:-sb_publishable_1Clq8rlTVACkdcZuqr6_AD__xUUC_EN}"
+          NUVIO_SUPABASE_FALLBACK_URL="${NUVIO_SUPABASE_FALLBACK_URL_SECRET:-}"
+
+          {
+            printf 'sdk.dir=%s\n' "${SDK_DIR}"
+            printf 'NUVIO_SUPABASE_URL=%s\n' "${NUVIO_SUPABASE_URL}"
+            printf 'NUVIO_SUPABASE_ANON_KEY=%s\n' "${NUVIO_SUPABASE_ANON_KEY}"
+            if [[ -n "${NUVIO_SUPABASE_FALLBACK_URL}" ]]; then
+              printf 'NUVIO_SUPABASE_FALLBACK_URL=%s\n' "${NUVIO_SUPABASE_FALLBACK_URL}"
+            fi
+          } > local.properties
+
+      - name: Create temporary release signing key
+        shell: bash
+        run: |
+          set -euo pipefail
+          keytool -genkeypair \
+            -keystore "${RUNNER_TEMP}/nuvio-build-release.jks" \
+            -storepass android \
+            -keypass android \
+            -alias nuvio-build \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 3650 \
+            -dname "CN=Nuvio Build, OU=Nuvio, O=Nuvio, L=Unknown, ST=Unknown, C=IN" \
+            -noprompt
+
+          cat >> local.properties <<EOF
+          NUVIO_RELEASE_STORE_FILE=${RUNNER_TEMP}/nuvio-build-release.jks
+          NUVIO_RELEASE_STORE_PASSWORD=android
+          NUVIO_RELEASE_KEY_ALIAS=nuvio-build
+          NUVIO_RELEASE_KEY_PASSWORD=android
+          EOF
+
+      - name: Make Gradle executable
+        run: chmod +x ./gradlew
+
+      # The existing release build type already enables R8/minification,
+      # resource shrinking, optimized ProGuard defaults and ABI splits.
+      # This workflow deliberately does not duplicate or modify those settings.
+      - name: Build optimized full release APKs
+        env:
+          GRADLE_OPTS: -Dorg.gradle.daemon=false -Dorg.gradle.jvmargs=-Xmx4g
+        run: ./gradlew :androidApp:assembleFullRelease --no-daemon --stacktrace
+
+      - name: Verify optimized APK output
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          apks=(androidApp/build/outputs/apk/full/release/*.apk)
+          if (( ${#apks[@]} == 0 )); then
+            echo "No optimized release APKs were produced." >&2
+            exit 1
+          fi
+          printf 'Produced APKs:\n'
+          printf ' - %s\n' "${apks[@]}"
+
+      - name: Upload optimized APKs
+        uses: actions/upload-artifact@v6
+        with:
+          name: nuvio-optimized-release-apks
+          path: androidApp/build/outputs/apk/full/release/*.apk
+          if-no-files-found: error
+          retention-days: 14
