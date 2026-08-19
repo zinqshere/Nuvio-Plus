@@ -8,7 +8,7 @@
  import androidx.media3.exoplayer.ExoPlayer
  import androidx.media3.exoplayer.ForwardingRenderer
  import androidx.media3.exoplayer.Renderer
-@@ -1919,6 +1920,20 @@
+@@ -1919,6 +1920,13 @@
      private val shouldNormalizeCuePositionProvider: () -> Boolean,
      private val videoBoundsFractionProvider: () -> RectF?,
  ) : DefaultRenderersFactory(context) {
@@ -19,7 +19,6 @@
 +    ): DefaultAudioSink {
 +        return DefaultAudioSink.Builder(context)
 +            .setEnableFloatOutput(enableFloatOutput)
-+            .setEnableAudioOutputPlaybackParams(enableAudioOutputPlaybackParams)
 +            .setAudioProcessors(
 +                arrayOf(NuvioVolumeGainAudioProcessor()),
 +            )
