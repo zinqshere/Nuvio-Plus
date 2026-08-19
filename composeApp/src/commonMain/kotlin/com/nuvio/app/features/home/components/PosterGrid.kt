@@ -15,6 +15,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -87,6 +88,9 @@ internal fun PosterGridSkeletonRow(
     modifier: Modifier = Modifier,
 ) {
     val posterCardStyle = rememberPosterCardStyleUiState()
+    val skeletonShape = remember(posterCardStyle.cornerRadiusDp) {
+        RoundedCornerShape(posterCardStyle.cornerRadiusDp.dp)
+    }
 
     Row(
         modifier = modifier.fillMaxWidth(),
@@ -97,7 +101,7 @@ internal fun PosterGridSkeletonRow(
                 modifier = Modifier
                     .weight(1f)
                     .aspectRatio(0.68f)
-                    .clip(RoundedCornerShape(posterCardStyle.cornerRadiusDp.dp))
+                    .clip(skeletonShape)
                     .background(MaterialTheme.colorScheme.surface),
             )
         }
@@ -115,6 +119,13 @@ private fun PosterGridTile(
     onClick: (() -> Unit)? = null,
     onLongClick: (() -> Unit)? = null,
 ) {
+    val cardShape = remember(cornerRadiusDp) {
+        RoundedCornerShape(cornerRadiusDp.dp)
+    }
+    val aspectRatio = remember(item.posterShape) {
+        item.posterShape.posterGridAspectRatio()
+    }
+
     Column(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -122,11 +133,11 @@ private fun PosterGridTile(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(item.posterShape.posterGridAspectRatio())
-                .clip(RoundedCornerShape(cornerRadiusDp.dp))
+                .aspectRatio(aspectRatio)
+                .clip(cardShape)
                 .background(MaterialTheme.colorScheme.surface)
                 .nuvioCardDepth(
-                    shape = RoundedCornerShape(cornerRadiusDp.dp),
+                    shape = cardShape,
                     surface = NuvioCardDepthSurface.Posters,
                 )
                 .posterCardClickable(
