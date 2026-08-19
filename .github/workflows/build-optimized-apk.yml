@@ -35,6 +35,15 @@ jobs:
           git -C MPVKit config submodule.recurse false
           test "$(git -C MPVKit rev-parse HEAD)" = "${MPVKIT_SHA}"
 
+      - name: Apply PCM volume-gain audio pipeline patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git apply --check .github/patches/volume-gain-audio-sink.patch
+          git apply .github/patches/volume-gain-audio-sink.patch
+          git diff --check
+          grep -q "NuvioVolumeGainAudioProcessor" composeApp/src/androidMain/kotlin/com/nuvio/app/features/player/PlayerEngine.android.kt
+
       - name: Set up Java
         uses: actions/setup-java@v5
         with:
@@ -59,8 +68,6 @@ jobs:
             exit 1
           fi
 
-          # GenerateRuntimeConfigsTask reads these values from local.properties.
-          # Secrets override the public defaults when the repository provides them.
           NUVIO_SUPABASE_URL="${NUVIO_SUPABASE_URL_SECRET:-https://api.nuvio.tv}"
           NUVIO_SUPABASE_ANON_KEY="${NUVIO_SUPABASE_ANON_KEY_SECRET:-sb_publishable_1Clq8rlTVACkdcZuqr6_AD__xUUC_EN}"
           NUVIO_SUPABASE_FALLBACK_URL="${NUVIO_SUPABASE_FALLBACK_URL_SECRET:-}"
@@ -99,9 +106,6 @@ jobs:
       - name: Make Gradle executable
         run: chmod +x ./gradlew
 
-      # The existing release build type already enables R8/minification,
-      # resource shrinking, optimized ProGuard defaults and ABI splits.
-      # This workflow deliberately does not duplicate or modify those settings.
       - name: Build optimized full release APKs
         env:
           GRADLE_OPTS: -Dorg.gradle.daemon=false -Dorg.gradle.jvmargs=-Xmx4g
