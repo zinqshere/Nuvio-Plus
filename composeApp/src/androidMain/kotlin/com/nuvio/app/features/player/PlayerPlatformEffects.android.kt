@@ -5,12 +5,9 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.pm.ActivityInfo
 import android.media.AudioManager
-import android.media.audiofx.LoudnessEnhancer
 import androidx.activity.ComponentActivity
 import android.os.Build
 import android.provider.Settings
-import android.view.View
-import android.view.ViewGroup
 import android.view.WindowManager
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -26,29 +23,8 @@ import androidx.core.util.Consumer
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.ui.PlayerView
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
-import kotlin.math.ln
+import kotlinx.coroutines.runBlocking
 import kotlin.math.roundToInt
-
-private const val NUVIO_MAX_PLAYER_VOLUME = 2f
-private const val NUVIO_MILLIBELS_PER_DB = 100f
-
-private fun volumeBoostGainMillibels(fraction: Float): Int {
-    val normalized = fraction.coerceIn(1f, NUVIO_MAX_PLAYER_VOLUME)
-    if (normalized <= 1f) return 0
-    // Convert the requested linear gain (1x..2x) to dB for LoudnessEnhancer.
-    // 2x amplitude is approximately +6.02 dB / +602 mB.
-    return (20f * (ln(normalized.toDouble()) / ln(10.0)) * NUVIO_MILLIBELS_PER_DB)
-        .roundToInt()
-        .coerceIn(0, 602)
-}
 
 @Composable
 actual fun LockPlayerToLandscape() {
@@ -116,19 +92,9 @@ actual fun rememberPlayerGestureController(): PlayerGestureController? {
     val activity = context.findActivity() ?: return null
     val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return null
 
-    val controller = remember(activity, audioManager) {
+    return remember(activity, audioManager) {
         AndroidPlayerGestureController(activity = activity, audioManager = audioManager)
     }
-
-    DisposableEffect(controller) {
-        controller.startVolumeBoostDiscovery()
-        onDispose {
-            controller.stopVolumeBoostDiscovery()
-            controller.restoreBrightness()
-        }
-    }
-
-    return controller
 }
 
 private tailrec fun Context.findActivity(): Activity? =
@@ -144,71 +110,12 @@ private fun Activity.shouldForceLandscapePlayer(): Boolean {
     return true
 }
 
-@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 private class AndroidPlayerGestureController(
     private val activity: Activity,
     private val audioManager: AudioManager,
 ) : PlayerGestureController {
     private val originalBrightness = activity.window.attributes.screenBrightness
     private var brightnessRestored = false
-    private var volumeBoostJob: Job? = null
-    private var volumeBoost: LoudnessEnhancer? = null
-    private var attachedAudioSessionId: Int = 0
-
-    fun startVolumeBoostDiscovery() {
-        if (volumeBoostJob?.isActive == true) return
-        volumeBoostJob = CoroutineScope(Dispatchers.Main.immediate).launch {
-            while (isActive) {
-                attachVolumeBoostIfNeeded()
-                delay(250L)
-            }
-        }
-    }
-
-    fun stopVolumeBoostDiscovery() {
-        volumeBoostJob?.cancel()
-        volumeBoostJob = null
-        releaseVolumeBoost()
-    }
-
-    private fun attachVolumeBoostIfNeeded() {
-        val playerView = findPlayerView(activity.window.decorView) ?: return
-        val player = playerView.player as? ExoPlayer ?: return
-        val sessionId = runCatching { player.audioSessionId }.getOrDefault(0)
-        if (sessionId <= 0) return
-
-        if (sessionId != attachedAudioSessionId) {
-            releaseVolumeBoost()
-            val enhancer = runCatching { LoudnessEnhancer(sessionId) }.getOrNull() ?: return
-            volumeBoost = enhancer
-            attachedAudioSessionId = sessionId
-        }
-
-        val requestedVolume = AndroidPlayerVolumeBoost.fraction.coerceIn(0f, NUVIO_MAX_PLAYER_VOLUME)
-        val gainMillibels = volumeBoostGainMillibels(requestedVolume)
-        runCatching {
-            volumeBoost?.setTargetGain(gainMillibels)
-            volumeBoost?.enabled = gainMillibels > 0
-        }
-    }
-
-    private fun releaseVolumeBoost() {
-        runCatching {
-            volumeBoost?.enabled = false
-            volumeBoost?.release()
-        }
-        volumeBoost = null
-        attachedAudioSessionId = 0
-    }
-
-    private fun findPlayerView(view: View): PlayerView? {
-        if (view is PlayerView) return view
-        if (view !is ViewGroup) return null
-        for (index in 0 until view.childCount) {
-            findPlayerView(view.getChildAt(index))?.let { return it }
-        }
-        return null
-    }
 
     override fun currentBrightness(): Float {
         val windowValue = activity.window.attributes.screenBrightness
@@ -237,14 +144,13 @@ private class AndroidPlayerGestureController(
     }
 
     override fun setVolume(level: Float): PlayerAudioLevel {
-        val requestedFraction = level.coerceIn(0f, NUVIO_MAX_PLAYER_VOLUME)
+        val requestedFraction = level.coerceIn(0f, 2f)
         val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
         val targetSystemFraction = requestedFraction.coerceAtMost(1f)
         val targetVolume = (targetSystemFraction * maxVolume.toFloat()).roundToInt().coerceIn(0, maxVolume)
 
         audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, targetVolume, 0)
         AndroidPlayerVolumeBoost.setFraction(requestedFraction)
-        attachVolumeBoostIfNeeded()
 
         return PlayerAudioLevel(
             fraction = requestedFraction,
