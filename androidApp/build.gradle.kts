@@ -64,7 +64,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.zinqshere.nuvioplus"
+        applicationId = "com.nuvioplus.app"
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
         versionCode = releaseAppVersionCode
@@ -135,7 +135,7 @@ android {
 
 androidComponents {
     onVariants(selector().withBuildType("debug")) { variant ->
-        variant.applicationId.set("com.zinqshere.nuvioplus.debug")
+        variant.applicationId.set("com.nuvioplus.app.debug")
     }
 }
 
