@@ -1,55 +1,54 @@
-<div align="center">
+# 🎬 Nuvio Plus
 
-  <img src="https://nuvio.tv/assets/nuvio-app-logo-wordmark.webp" alt="Nuvio" width="320" />
+> A clean, fast and open-source media hub for Android.
 
-  <p>
-    A free, open-source media app for your phone, your desktop, and the TV you already own.
-    <br />
-    Bring your own sources. Nuvio turns them into a library with artwork, ratings, subtitles, and your place saved on every screen.
-  </p>
+Nuvio Plus is a customized Nuvio build focused on a better playback experience, improved performance and useful power-user features — while keeping the core Nuvio experience intact.
 
-  [Website](https://nuvio.tv) · [GitHub releases](https://github.com/NuvioMedia/NuvioMobile/releases/latest) · [Support Nuvio](https://nuvio.tv/support)
+## ✨ Features
 
-</div>
+- 🎬 **Movies & TV Shows** — Browse and discover your library.
+- 🔎 **Search** — Quickly find movies, shows and episodes.
+- 📚 **Library** — Keep your content organized in one place.
+- ▶️ **Media Playback** — Smooth playback with source, audio and subtitle controls.
+- 🔌 **Addon Support** — Use the Nuvio/Stremio addon ecosystem for catalogs and streams.
+- 📝 **Subtitle Support** — Select and manage subtitle tracks.
+- 🔇 **SDH Filtering** — Improved filtering of SDH subtitles, aligned with MPV behavior.
+- 💾 **Downloads** — Save supported media for offline playback.
+- 🔄 **Watch Progress** — Keep your playback position and continue watching.
+- ⭐ **Metadata & Artwork** — Posters, ratings and media information.
+- ☁️ **Sync** — Keep supported library and watch-progress data synchronized.
 
-## Get Nuvio Mobile
+## 🚀 Nuvio Plus Enhancements
 
-- [Android on Google Play](https://play.google.com/store/apps/details?id=com.nuvio.app)
-- [Android APK](https://github.com/NuvioMedia/NuvioMobile/releases/latest)
-- iOS must be built from source.
+- 🔊 **200% Volume Boost** — Push player volume beyond the normal 100% limit.
+- 🎚️ **Extended Volume Controls** — Volume feedback supports levels above 100%.
+- 🔊 **PCM Audio Gain** — Volume boost is applied directly in the Media3 audio pipeline.
+- ⚡ **Faster UI** — Reduced unnecessary poster-grid recomposition.
+- 🖼️ **Optimized Rendering** — Cached card drawing resources for smoother browsing.
+- 📦 **Nuvio Plus Identity** — Android package ID: `com.nuvioplus.app`.
 
-## Build from source
+## 🛠️ Built With
 
-```bash
-git clone https://github.com/NuvioMedia/NuvioMobile.git
-cd NuvioMobile
-```
+- Kotlin Multiplatform
+- Compose Multiplatform
+- AndroidX Media3
+- Android
 
-### Android
+## 📱 Android
 
-Android development requires Android Studio and the Android SDK.
+**App name:** Nuvio Plus  
+**Package ID:** `com.nuvioplus.app`
 
-```bash
-./gradlew :androidApp:assembleFullDebug
-```
+Builds are produced through the project's GitHub Actions workflow.
 
-### iOS
+## ⚖️ Disclaimer
 
-iOS development requires macOS and Xcode.
+Nuvio Plus is a client-side media application. It does not host, store or distribute media content. Users are responsible for the sources, addons and content they choose to access and should only access content they are authorized to use.
 
-```bash
-env NUVIO_IOS_DISTRIBUTION=full xcodebuild \
-  -project iosApp/iosApp.xcodeproj \
-  -scheme iosApp \
-  -configuration Debug \
-  -sdk iphonesimulator \
-  -derivedDataPath build/ios-derived-full-simulator \
-  CODE_SIGNING_ALLOWED=NO \
-  build
-```
+## 📄 License
 
-The shared app is built with Kotlin Multiplatform and Compose Multiplatform.
+Nuvio Plus is distributed under the **GNU General Public License v3.0**. See [`LICENSE`](./LICENSE) for details.
 
-## License
+## 🙏 Credits
 
-[GNU General Public License v3.0](./LICENSE)
+Nuvio Plus is based on the open-source **Nuvio** project and builds on its Kotlin Multiplatform / Compose Multiplatform architecture and media experience.
