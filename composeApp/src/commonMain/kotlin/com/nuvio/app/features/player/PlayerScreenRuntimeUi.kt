@@ -194,7 +194,7 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                 seasonNumber = activeSeasonNumber,
                 episodeNumber = activeEpisodeNumber,
                 episodeTitle = activeEpisodeTitle,
-                pauseDescription = pauseDescription ?: activeStreamSubtitle,
+                pauseDescription = activePauseDescription ?: activeStreamSubtitle,
                 providerName = activeProviderName,
                 metrics = metrics,
                 horizontalSafePadding = horizontalSafePadding,
@@ -400,6 +400,7 @@ private fun BoxScope.RenderPlaybackOverlays(
         nextEpisodeAutoPlaySearching = nextEpisodeAutoPlaySearching,
         nextEpisodeAutoPlaySourceName = nextEpisodeAutoPlaySourceName,
         nextEpisodeAutoPlayCountdown = nextEpisodeAutoPlayCountdown,
+        blurUnwatchedEpisodes = metaScreenSettingsUiState.blurUnwatchedEpisodes,
         onPlayNextEpisode = {
             nextEpisodeAutoPlayJob?.cancel()
             playNextEpisode()

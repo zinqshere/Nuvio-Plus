@@ -119,7 +119,6 @@ import com.nuvio.app.core.ui.configurePlatformImageLoader
 import com.nuvio.app.core.ui.NuvioToastHost
 import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.core.ui.NuvioFloatingPrompt
-import com.nuvio.app.core.ui.ProfileMeshBackground
 import com.nuvio.app.core.ui.TrackingListPickerDialog
 import com.nuvio.app.core.ui.NuvioTheme
 import com.nuvio.app.core.ui.NuvioTokens
@@ -191,10 +190,10 @@ import com.nuvio.app.features.player.sanitizePlaybackResponseHeaders
 import com.nuvio.app.features.profiles.AvatarRepository
 import com.nuvio.app.features.profiles.NuvioProfile
 import com.nuvio.app.features.profiles.ProfileEditScreen
+import com.nuvio.app.features.profiles.ProfileBackgroundBackdrop
 import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.profiles.ProfileSelectionScreen
 import com.nuvio.app.features.profiles.ProfileSwitcherTab
-import com.nuvio.app.features.profiles.parseHexColor
 import com.nuvio.app.features.profiles.profileAvatarImageUrl
 import com.nuvio.app.features.search.SearchScreen
 import com.nuvio.app.features.settings.SettingsScreen
@@ -209,6 +208,7 @@ import com.nuvio.app.features.settings.SupportersContributorsSettingsScreen
 import com.nuvio.app.features.settings.LicensesAttributionsSettingsScreen
 import com.nuvio.app.features.settings.NavBarStyle
 import com.nuvio.app.features.settings.ThemeSettingsRepository
+import com.nuvio.app.features.home.components.shouldBlurContinueWatchingArtwork
 import com.nuvio.app.features.collection.CollectionManagementScreen
 import com.nuvio.app.features.collection.CollectionEditorScreen
 import com.nuvio.app.features.collection.CollectionEditorRepository
@@ -863,10 +863,7 @@ private fun MainAppContent(
             }
         }
         val profileState by ProfileRepository.state.collectAsStateWithLifecycle()
-        val launchOverlayProfileColor = remember(profileState.activeProfile, profileState.profiles) {
-            val sourceProfile = profileState.activeProfile ?: profileState.profiles.firstOrNull()
-            sourceProfile?.avatarColorHex?.let(::parseHexColor) ?: Color(0xFF1E88E5)
-        }
+        val launchOverlayProfile = profileState.activeProfile ?: profileState.profiles.firstOrNull()
     val playerSettingsUiState by remember {
         PlayerSettingsRepository.ensureLoaded()
         PlayerSettingsRepository.uiState
@@ -3463,6 +3460,11 @@ private fun MainAppContent(
                             imageUrl = cloudLibraryDisplayArtworkUrl(anchor.imageUrl ?: item.poster ?: item.imageUrl),
                             title = item.title,
                             subtitle = localizedContinueWatchingSubtitle(item),
+                            blurred = item.shouldBlurContinueWatchingArtwork(
+                                blurUnwatchedEpisodes = continueWatchingPreferencesUiState.blurNextUp,
+                                useEpisodeThumbnails = continueWatchingPreferencesUiState.useEpisodeThumbnails,
+                                artworkUrl = anchor.imageUrl ?: item.poster ?: item.imageUrl,
+                            ),
                             depthSurface = NuvioCardDepthSurface.ContinueWatching,
                             anchor = anchor,
                             actions = buildList {
@@ -3639,7 +3641,7 @@ private fun MainAppContent(
                 exit = fadeOut(androidx.compose.animation.core.tween(400)),
             ) {
                 AppLaunchOverlay(
-                    profileColor = launchOverlayProfileColor,
+                    profile = launchOverlayProfile,
                     modifier = Modifier.fillMaxSize(),
                 )
             }
@@ -3967,7 +3969,7 @@ private fun TabletTopPillItem(
 
 @Composable
 private fun AppLaunchOverlay(
-    profileColor: Color,
+    profile: NuvioProfile?,
     modifier: Modifier = Modifier,
 ) {
     val tokens = MaterialTheme.nuvio
@@ -3976,8 +3978,8 @@ private fun AppLaunchOverlay(
             .zIndex(NuvioTokens.Z.dialog),
         contentAlignment = Alignment.Center,
     ) {
-        ProfileMeshBackground(
-            profileColor = profileColor,
+        ProfileBackgroundBackdrop(
+            profile = profile,
             modifier = Modifier.fillMaxSize(),
         )
         Column(
