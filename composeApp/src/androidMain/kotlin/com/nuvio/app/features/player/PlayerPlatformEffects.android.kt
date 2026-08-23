@@ -1,3 +1,5 @@
+package com.nuvio.app.features.player
+
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
