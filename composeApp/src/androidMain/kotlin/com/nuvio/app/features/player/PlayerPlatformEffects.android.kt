@@ -1,5 +1,3 @@
-package com.nuvio.app.features.player
-
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
@@ -92,9 +90,17 @@ actual fun rememberPlayerGestureController(): PlayerGestureController? {
     val activity = context.findActivity() ?: return null
     val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return null
 
-    return remember(activity, audioManager) {
+    val controller = remember(activity, audioManager) {
         AndroidPlayerGestureController(activity = activity, audioManager = audioManager)
     }
+    
+    DisposableEffect(controller) {
+        onDispose {
+            controller.restoreBrightness()
+        }
+    }
+    
+    return controller
 }
 
 private tailrec fun Context.findActivity(): Activity? =
