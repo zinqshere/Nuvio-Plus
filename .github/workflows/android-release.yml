@@ -142,6 +142,30 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v6
 
+      - name: Checkout pinned MPVKit
+        shell: bash
+        run: |
+          set -euo pipefail
+          MPVKIT_SHA="d5cf091c80368bbbc1bbf2d195fbc55d926df888"
+
+          git clone --no-checkout https://github.com/NuvioMedia/MPVKit.git MPVKit
+          git -C MPVKit checkout --detach "${MPVKIT_SHA}"
+          git -C MPVKit config submodule.recurse false
+
+          test "$(git -C MPVKit rev-parse HEAD)" = "${MPVKIT_SHA}"
+
+      - name: Apply PCM volume-gain audio pipeline patch
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git apply --check .github/patches/volume-gain-audio-sink.patch
+          git apply .github/patches/volume-gain-audio-sink.patch
+          git diff --check
+
+          grep -q "NuvioVolumeGainAudioProcessor" \
+            composeApp/src/androidMain/kotlin/com/nuvio/app/features/player/PlayerEngine.android.kt
+
       - name: Set up Java
         uses: actions/setup-java@v5
         with:
