@@ -25,6 +25,8 @@ Nuvio Plus is a customized Nuvio build focused on a better playback experience, 
 - 🔊 **PCM Audio Gain** — Volume boost is applied directly in the Media3 audio pipeline.
 - ⚡ **Faster UI** — Reduced unnecessary poster-grid recomposition.
 - 🖼️ **Optimized Rendering** — Cached card drawing resources for smoother browsing.
+- 🚪 **Instant App Exit** — Removes the exit confirmation dialog from the root Home screen.
+- 📱 **Native Android Exit Animation** — Uses Android's normal Activity finishing behavior for a smoother closing animation.
 - 📦 **Nuvio Plus Identity** — Android package ID: `com.nuvioplus.app`.
 
 ## 🛠️ Built With
