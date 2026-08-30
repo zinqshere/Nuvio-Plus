@@ -2,24 +2,26 @@ package com.nuvio.app.core.ui
 
 import android.app.Activity
 import androidx.core.app.ActivityCompat
+import java.lang.ref.WeakReference
 
-private var currentActivity: Activity? = null
+private var currentActivity: WeakReference<Activity>? = null
 
 fun registerPlatformExitActivity(activity: Activity) {
-    currentActivity = activity
+    currentActivity = WeakReference(activity)
 }
 
 fun unregisterPlatformExitActivity(activity: Activity) {
-    if (currentActivity === activity) {
+    if (currentActivity?.get() === activity) {
         currentActivity = null
     }
 }
 
 actual fun platformExitApp() {
-    val activity = currentActivity
-    if (activity != null) {
+    currentActivity?.get()?.let { activity ->
         activity.runOnUiThread {
-            ActivityCompat.finishAffinity(activity)
+            if (!activity.isFinishing) {
+                ActivityCompat.finishAffinity(activity)
+            }
         }
     }
 }
