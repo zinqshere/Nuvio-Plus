@@ -59,6 +59,8 @@ jobs:
           NUVIO_SUPABASE_URL_SECRET: ${{ secrets.NUVIO_SUPABASE_URL }}
           NUVIO_SUPABASE_ANON_KEY_SECRET: ${{ secrets.NUVIO_SUPABASE_ANON_KEY }}
           NUVIO_SUPABASE_FALLBACK_URL_SECRET: ${{ secrets.NUVIO_SUPABASE_FALLBACK_URL }}
+          RELEASE_PROPERTIES_BASE64: ${{ secrets.NUVIO_LOCAL_PROPERTIES_BASE64 }}
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.NUVIO_RELEASE_KEYSTORE_BASE64 }}
         run: |
           set -euo pipefail
 
@@ -81,27 +83,30 @@ jobs:
             fi
           } > local.properties
 
-      - name: Create temporary release signing key
-        shell: bash
-        run: |
-          set -euo pipefail
-          keytool -genkeypair \
-            -keystore "${RUNNER_TEMP}/nuvio-build-release.jks" \
-            -storepass android \
-            -keypass android \
-            -alias nuvio-build \
-            -keyalg RSA \
-            -keysize 2048 \
-            -validity 3650 \
-            -dname "CN=Nuvio Build, OU=Nuvio, O=Nuvio, L=Unknown, ST=Unknown, C=IN" \
-            -noprompt
+          if [[ -z "${RELEASE_PROPERTIES_BASE64}" || -z "${RELEASE_KEYSTORE_BASE64}" ]]; then
+            echo "Release signing secrets are required for update-compatible optimized APKs." >&2
+            exit 1
+          fi
 
-          cat >> local.properties <<EOF
-          NUVIO_RELEASE_STORE_FILE=${RUNNER_TEMP}/nuvio-build-release.jks
-          NUVIO_RELEASE_STORE_PASSWORD=android
-          NUVIO_RELEASE_KEY_ALIAS=nuvio-build
-          NUVIO_RELEASE_KEY_PASSWORD=android
-          EOF
+          keystore_path="${RUNNER_TEMP}/nuvio-release.jks"
+          printf '%s' "${RELEASE_KEYSTORE_BASE64}" | base64 --decode > "${keystore_path}"
+
+          printf '%s' "${RELEASE_PROPERTIES_BASE64}" | base64 --decode > release-signing.properties
+          sed -i -E '/^[[:space:]]*(sdk\.dir|NUVIO_RELEASE_STORE_FILE)[[:space:]]*=/d' release-signing.properties
+          printf '\nNUVIO_RELEASE_STORE_FILE=%s\n' "${keystore_path}" >> release-signing.properties
+          cat release-signing.properties >> local.properties
+
+          required_properties=(
+            NUVIO_RELEASE_STORE_PASSWORD
+            NUVIO_RELEASE_KEY_ALIAS
+            NUVIO_RELEASE_KEY_PASSWORD
+          )
+          for property_name in "${required_properties[@]}"; do
+            if ! grep -Eq "^${property_name}=.+" local.properties; then
+              echo "Missing required property: ${property_name}" >&2
+              exit 1
+            fi
+          done
 
       - name: Make Gradle executable
         run: chmod +x ./gradlew
