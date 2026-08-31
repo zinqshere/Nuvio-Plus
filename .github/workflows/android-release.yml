@@ -192,8 +192,6 @@ jobs:
             NUVIO_RELEASE_STORE_PASSWORD
             NUVIO_RELEASE_KEY_ALIAS
             NUVIO_RELEASE_KEY_PASSWORD
-            TRAKT_CLIENT_ID
-            TRAKT_CLIENT_SECRET
           )
           for property_name in "${required_properties[@]}"; do
             if ! grep -Eq "^${property_name}=.+" local.properties; then
@@ -284,7 +282,11 @@ jobs:
 
   release:
     name: Create ${{ inputs.mode }} release
-    if: inputs.mode != 'dry-run'
+    if: >-
+      always() && inputs.mode != 'dry-run'
+      && needs.prepare.result == 'success'
+      && needs.android.result == 'success'
+      && (needs.ios.result == 'success' || needs.ios.result == 'skipped')
     needs:
       - prepare
       - android
