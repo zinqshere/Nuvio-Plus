@@ -12,6 +12,11 @@ on:
           - draft
           - publish
         default: dry-run
+      build_ios:
+        description: Build the iOS IPA as part of this release
+        required: false
+        type: boolean
+        default: false
       exclude_commits:
         description: Optional comma-separated commit hashes to omit from the notes
         required: false
@@ -209,7 +214,7 @@ jobs:
 
   ios:
     name: Build iOS IPA
-    if: inputs.mode != 'dry-run'
+    if: inputs.mode != 'dry-run' && inputs.build_ios
     needs: prepare
     runs-on: macos-26
     timeout-minutes: 75
