@@ -56,7 +56,11 @@ fun NetworkCondition.messageForEmptyState(): String =
     }
 
 object NetworkStatusRepository {
-    private const val REQUEST_TIMEOUT_MS = 4_500L
+    // The health probe uses the same HTTP stack as addon/network requests, but
+    // startup DNS/TLS establishment can legitimately take longer on mobile
+    // networks. A 4.5s total timeout was producing false "Cannot reach servers"
+    // toasts even though the app's real requests subsequently succeeded.
+    private const val REQUEST_TIMEOUT_MS = 15_000L
     private const val FOREGROUND_REFRESH_DELAY_MS = 6_000L
     private const val FOREGROUND_FAILURE_CONFIRM_DELAY_MS = 2_000L
     private const val PUBLIC_PROBE_PRIMARY = "https://www.gstatic.com/generate_204"
