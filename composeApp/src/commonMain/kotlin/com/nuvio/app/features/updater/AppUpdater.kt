@@ -23,10 +23,9 @@ import kotlinx.coroutines.runBlocking
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.getString
 
-private const val gitHubOwner = "NuvioMedia"
-private const val gitHubRepo = "NuvioMobile"
+private const val gitHubOwner = "zinqshere"
+private const val gitHubRepo = "Nuvio-Plus"
 private const val gitHubApiBase = "https://api.github.com"
-private const val releaseChannelBranch = "cmp-rewrite"
 
 data class AppUpdate(
     val tag: String,
@@ -59,7 +58,6 @@ private data class GitHubReleaseDto(
     val draft: Boolean = false,
     val prerelease: Boolean = false,
     @SerialName("html_url") val htmlUrl: String? = null,
-    @SerialName("target_commitish") val targetCommitish: String? = null,
     val assets: List<GitHubAssetDto> = emptyList(),
 )
 
@@ -124,7 +122,7 @@ private object AppUpdaterRepository {
             url = "$gitHubApiBase/repos/$gitHubOwner/$gitHubRepo/releases?per_page=20",
             headers = mapOf(
                 "Accept" to "application/vnd.github+json",
-                "User-Agent" to "NuvioMobile",
+                "User-Agent" to "Nuvio-Plus",
             ),
             body = "",
         )
@@ -133,7 +131,7 @@ private object AppUpdaterRepository {
         }
 
         val releases = appUpdaterJson.decodeFromString<List<GitHubReleaseDto>>(response.body)
-        val release = releases.firstOrNull { it.matchesRequestedChannel() && !it.draft && !it.prerelease }
+        val release = releases.firstOrNull { !it.draft && !it.prerelease }
             ?: throw NoChannelReleaseException()
 
         val tag = release.tagName?.takeIf { it.isNotBlank() }
@@ -152,17 +150,6 @@ private object AppUpdaterRepository {
             assetUrl = asset.browserDownloadUrl,
             assetSizeBytes = asset.size,
         )
-    }
-
-    private fun GitHubReleaseDto.matchesRequestedChannel(): Boolean {
-        val channel = releaseChannelBranch
-        if (targetCommitish?.trim()?.equals(channel, ignoreCase = true) == true) {
-            return true
-        }
-
-        return listOf(tagName, name)
-            .filterNotNull()
-            .any { value -> value.contains(channel, ignoreCase = true) }
     }
 
     private fun chooseBestApkAsset(assets: List<GitHubAssetDto>): GitHubAssetDto? {
