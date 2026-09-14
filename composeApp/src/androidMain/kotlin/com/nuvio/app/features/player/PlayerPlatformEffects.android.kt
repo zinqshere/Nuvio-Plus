@@ -181,9 +181,22 @@ private class AndroidPlayerGestureController(
     }
 
     override fun currentVolume(): PlayerAudioLevel {
-        val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
-        val currentVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC).coerceIn(0, maxVolume)
+        val boostedFraction = AndroidPlayerVolumeBoost.fraction
+        if (boostedFraction > 1f) {
+            return PlayerAudioLevel(
+                fraction = boostedFraction,
+                isMuted = false,
+            )
+        }
+
+        val maxVolume =
+            audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+        val currentVolume =
+            audioManager.getStreamVolume(AudioManager.STREAM_MUSIC).coerceIn(0, maxVolume)
         val fraction = currentVolume.toFloat() / maxVolume.toFloat()
+
+        AndroidPlayerVolumeBoost.setFraction(fraction)
+
         return PlayerAudioLevel(
             fraction = fraction,
             isMuted = currentVolume == 0,
@@ -191,15 +204,21 @@ private class AndroidPlayerGestureController(
     }
 
     override fun setVolume(level: Float): PlayerAudioLevel {
-        val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
-        val targetVolume = (level.coerceIn(0f, 1f) * maxVolume.toFloat())
-            .roundToInt()
-            .coerceIn(0, maxVolume)
+        val requestedFraction = level.coerceIn(0f, 2f)
+        val maxVolume =
+            audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+        val targetSystemFraction = requestedFraction.coerceAtMost(1f)
+        val targetVolume =
+            (targetSystemFraction * maxVolume.toFloat())
+                .roundToInt()
+                .coerceIn(0, maxVolume)
+
         audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, targetVolume, 0)
-        val fraction = targetVolume.toFloat() / maxVolume.toFloat()
+        AndroidPlayerVolumeBoost.setFraction(requestedFraction)
+
         return PlayerAudioLevel(
-            fraction = fraction,
-            isMuted = targetVolume == 0,
+            fraction = requestedFraction,
+            isMuted = requestedFraction == 0f,
         )
     }
 
