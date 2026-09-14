@@ -99,6 +99,7 @@ import com.nuvio.app.features.collection.CollectionSyncService
 import com.nuvio.app.features.details.MetaDetailsRepository
 import com.nuvio.app.features.details.MetaScreenSettingsRepository
 import com.nuvio.app.features.downloads.DownloadItem
+import com.nuvio.app.features.downloads.DownloadSubtitles
 import com.nuvio.app.features.downloads.DownloadsRepository
 import com.nuvio.app.features.home.HomeCatalogSection
 import com.nuvio.app.features.home.HomeCatalogSettingsRepository
@@ -306,14 +307,8 @@ internal fun MainAppContent(
         PlayerSettingsRepository.ensureLoaded()
         PlayerSettingsRepository.uiState
     }.collectAsStateWithLifecycle()
-    var streamLoadingScreenVisible by remember(currentRoute) {
-        val launch = (currentRoute as? StreamRoute)?.let { StreamLaunchStore.get(it.launchId) }
-        mutableStateOf(
-            launch != null && !launch.manualSelection &&
-                StreamAutoPlayPolicy.isEffectivelyEnabled(playerSettingsUiState),
-        )
-    }
-    if (currentRoute is PlayerRoute || streamLoadingScreenVisible) {
+    var streamLandscapeLoadingVisible by remember(currentRoute) { mutableStateOf(false) }
+    if (currentRoute is PlayerRoute || streamLandscapeLoadingVisible) {
         LockPlayerToLandscape()
         HidePlayerSystemBars()
     }
@@ -883,7 +878,7 @@ internal fun MainAppContent(
                 sourceUrl = sourceUrl,
                 sourceHeaders = emptyMap(),
                 sourceResponseHeaders = emptyMap(),
-                externalSubtitles = emptyList(),
+                externalSubtitles = DownloadSubtitles.localSubtitles(sourceUrl),
                 streamType = null,
                 logo = item.logo,
                 poster = item.poster,
@@ -1005,7 +1000,7 @@ internal fun MainAppContent(
                         sourceUrl = localSourceUrl,
                         sourceHeaders = emptyMap(),
                         sourceResponseHeaders = emptyMap(),
-                        externalSubtitles = emptyList(),
+                        externalSubtitles = DownloadSubtitles.localSubtitles(localSourceUrl),
                         logo = logo,
                         poster = poster,
                         background = background,
@@ -1503,8 +1498,8 @@ internal fun MainAppContent(
                 entry<StreamRoute> { route ->
                     StreamDestination(
                         route = route,
-                        onLoadingScreenChanged = { visible ->
-                            if (currentRoute == route) streamLoadingScreenVisible = visible
+                        onLandscapeLoadingChanged = { visible ->
+                            if (currentRoute == route) streamLandscapeLoadingVisible = visible
                         },
                         navController = navController,
                         p2pEnabled = p2pSettingsUiState.p2pEnabled,
