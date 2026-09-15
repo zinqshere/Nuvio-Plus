@@ -22,9 +22,6 @@ jobs:
           fetch-depth: 1
           submodules: false
 
-      # The repository pins MPVKit as a git submodule. Do not recursively
-      # initialize its nested submodules; the pinned checkout is sufficient
-      # for the Android build and avoids the stale nested libass dependency.
       - name: Checkout pinned MPVKit
         shell: bash
         run: |
@@ -58,6 +55,12 @@ jobs:
         env:
           RELEASE_PROPERTIES_BASE64: ${{ secrets.NUVIO_LOCAL_PROPERTIES_BASE64 }}
           RELEASE_KEYSTORE_BASE64: ${{ secrets.NUVIO_RELEASE_KEYSTORE_BASE64 }}
+          TRAKT_CLIENT_ID_SECRET: ${{ secrets.TRAKT_CLIENT_ID }}
+          TRAKT_CLIENT_SECRET_SECRET: ${{ secrets.TRAKT_CLIENT_SECRET }}
+          TRAKT_REDIRECT_URI_SECRET: ${{ secrets.TRAKT_REDIRECT_URI }}
+          SIMKL_CLIENT_ID_SECRET: ${{ secrets.SIMKL_CLIENT_ID }}
+          SIMKL_REDIRECT_URI_SECRET: ${{ secrets.SIMKL_REDIRECT_URI }}
+          SIMKL_APP_NAME_SECRET: ${{ secrets.SIMKL_APP_NAME }}
         run: |
           set -euo pipefail
 
@@ -67,10 +70,6 @@ jobs:
             exit 1
           fi
 
-          # Always use the live official Nuvio discovery document for the
-          # backend URL and public client key. This prevents an old GitHub
-          # secret or hard-coded fallback from producing an APK that can no
-          # longer authenticate after the official backend configuration changes.
           DISCOVERY_URL="https://api.nuvio.tv/.well-known/nuvio"
           discovery_json="$(curl --fail --silent --show-error --location --max-time 20 "${DISCOVERY_URL}")"
           NUVIO_SUPABASE_URL="$(jq -er '.backend_url' <<<"${discovery_json}")"
@@ -90,14 +89,10 @@ jobs:
             exit 1
           fi
 
-          {
-            printf 'sdk.dir=%s\n' "${SDK_DIR}"
-            printf 'NUVIO_SUPABASE_URL=%s\n' "${NUVIO_SUPABASE_URL}"
-            printf 'NUVIO_SUPABASE_ANON_KEY=%s\n' "${NUVIO_SUPABASE_ANON_KEY}"
-          } > local.properties
+          printf 'sdk.dir=%s\n' "${SDK_DIR}" > local.properties
 
           if [[ -z "${RELEASE_PROPERTIES_BASE64}" || -z "${RELEASE_KEYSTORE_BASE64}" ]]; then
-            echo "Release signing secrets are required for update-compatible optimized APKs." >&2
+            echo "Release signing/configuration secrets are required for update-compatible optimized APKs." >&2
             exit 1
           fi
 
@@ -105,16 +100,56 @@ jobs:
           printf '%s' "${RELEASE_KEYSTORE_BASE64}" | base64 --decode > "${keystore_path}"
 
           printf '%s' "${RELEASE_PROPERTIES_BASE64}" | base64 --decode > release-signing.properties
-          # Signing properties must not be allowed to override the live
-          # authentication configuration discovered above.
           sed -i -E '/^[[:space:]]*(sdk\.dir|NUVIO_RELEASE_STORE_FILE|NUVIO_SUPABASE_URL|NUVIO_SUPABASE_ANON_KEY|NUVIO_SUPABASE_FALLBACK_URL)[[:space:]]*=/d' release-signing.properties
-          printf '\nNUVIO_RELEASE_STORE_FILE=%s\n' "${keystore_path}" >> release-signing.properties
+          printf '\nNUVIO_SUPABASE_URL=%s\n' "${NUVIO_SUPABASE_URL}" >> local.properties
+          printf 'NUVIO_SUPABASE_ANON_KEY=%s\n' "${NUVIO_SUPABASE_ANON_KEY}" >> local.properties
+          printf 'NUVIO_RELEASE_STORE_FILE=%s\n' "${keystore_path}" >> release-signing.properties
           cat release-signing.properties >> local.properties
+
+          # Dedicated tracking-app secrets are optional overrides. This keeps
+          # the existing NUVIO_LOCAL_PROPERTIES_BASE64 secret compatible while
+          # allowing Trakt/Simkl credentials to be managed independently.
+          if [[ -n "${TRAKT_CLIENT_ID_SECRET}" ]]; then
+            printf 'TRAKT_CLIENT_ID=%s\n' "${TRAKT_CLIENT_ID_SECRET}" >> local.properties
+          fi
+          if [[ -n "${TRAKT_CLIENT_SECRET_SECRET}" ]]; then
+            printf 'TRAKT_CLIENT_SECRET=%s\n' "${TRAKT_CLIENT_SECRET_SECRET}" >> local.properties
+          fi
+          if [[ -n "${TRAKT_REDIRECT_URI_SECRET}" ]]; then
+            printf 'TRAKT_REDIRECT_URI=%s\n' "${TRAKT_REDIRECT_URI_SECRET}" >> local.properties
+          fi
+          if [[ -n "${SIMKL_CLIENT_ID_SECRET}" ]]; then
+            printf 'SIMKL_CLIENT_ID=%s\n' "${SIMKL_CLIENT_ID_SECRET}" >> local.properties
+          fi
+          if [[ -n "${SIMKL_REDIRECT_URI_SECRET}" ]]; then
+            printf 'SIMKL_REDIRECT_URI=%s\n' "${SIMKL_REDIRECT_URI_SECRET}" >> local.properties
+          fi
+          if [[ -n "${SIMKL_APP_NAME_SECRET}" ]]; then
+            printf 'SIMKL_APP_NAME=%s\n' "${SIMKL_APP_NAME_SECRET}" >> local.properties
+          fi
+
+          # These redirect/app-name values are safe public configuration and
+          # match the defaults used by the client code.
+          if ! grep -Eq '^TRAKT_REDIRECT_URI=.+' local.properties; then
+            printf 'TRAKT_REDIRECT_URI=nuvio://auth/trakt\n' >> local.properties
+          fi
+          if ! grep -Eq '^SIMKL_REDIRECT_URI=.+' local.properties; then
+            printf 'SIMKL_REDIRECT_URI=nuvio://auth/simkl\n' >> local.properties
+          fi
+          if ! grep -Eq '^SIMKL_APP_NAME=.+' local.properties; then
+            printf 'SIMKL_APP_NAME=nuvio\n' >> local.properties
+          fi
 
           required_properties=(
             NUVIO_RELEASE_STORE_PASSWORD
             NUVIO_RELEASE_KEY_ALIAS
             NUVIO_RELEASE_KEY_PASSWORD
+            TRAKT_CLIENT_ID
+            TRAKT_CLIENT_SECRET
+            TRAKT_REDIRECT_URI
+            SIMKL_CLIENT_ID
+            SIMKL_REDIRECT_URI
+            SIMKL_APP_NAME
           )
           for property_name in "${required_properties[@]}"; do
             if ! grep -Eq "^${property_name}=.+" local.properties; then
