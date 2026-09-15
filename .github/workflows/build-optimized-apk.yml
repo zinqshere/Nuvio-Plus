@@ -142,8 +142,8 @@ jobs:
 
           required_properties=(
             NUVIO_RELEASE_STORE_PASSWORD
-            NUVIO_KEY_ALIAS
-            NUVIO_KEY_PASSWORD
+            NUVIO_RELEASE_KEY_ALIAS
+            NUVIO_RELEASE_KEY_PASSWORD
             TRAKT_CLIENT_ID
             TRAKT_CLIENT_SECRET
             TRAKT_REDIRECT_URI
