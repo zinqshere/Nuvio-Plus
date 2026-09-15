@@ -22,9 +22,6 @@ jobs:
           fetch-depth: 1
           submodules: false
 
-      # The repository pins MPVKit as a git submodule. Do not recursively
-      # initialize its nested submodules; the pinned checkout is sufficient
-      # for the Android build and avoids the stale nested libass dependency.
       - name: Checkout pinned MPVKit
         shell: bash
         run: |
@@ -58,6 +55,7 @@ jobs:
         env:
           RELEASE_PROPERTIES_BASE64: ${{ secrets.NUVIO_LOCAL_PROPERTIES_BASE64 }}
           RELEASE_KEYSTORE_BASE64: ${{ secrets.NUVIO_RELEASE_KEYSTORE_BASE64 }}
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
         run: |
           set -euo pipefail
 
@@ -67,10 +65,6 @@ jobs:
             exit 1
           fi
 
-          # Always use the live official Nuvio discovery document for the
-          # backend URL and public client key. This prevents an old GitHub
-          # secret or hard-coded fallback from producing an APK that can no
-          # longer authenticate after the official backend configuration changes.
           DISCOVERY_URL="https://api.nuvio.tv/.well-known/nuvio"
           discovery_json="$(curl --fail --silent --show-error --location --max-time 20 "${DISCOVERY_URL}")"
           NUVIO_SUPABASE_URL="$(jq -er '.backend_url' <<<"${discovery_json}")"
@@ -105,11 +99,21 @@ jobs:
           printf '%s' "${RELEASE_KEYSTORE_BASE64}" | base64 --decode > "${keystore_path}"
 
           printf '%s' "${RELEASE_PROPERTIES_BASE64}" | base64 --decode > release-signing.properties
-          # Signing properties must not be allowed to override the live
-          # authentication configuration discovered above.
-          sed -i -E '/^[[:space:]]*(sdk\.dir|NUVIO_RELEASE_STORE_FILE|NUVIO_SUPABASE_URL|NUVIO_SUPABASE_ANON_KEY|NUVIO_SUPABASE_FALLBACK_URL)[[:space:]]*=/d' release-signing.properties
+          sed -i -E '/^[[:space:]]*(sdk\.dir|NUVIO_RELEASE_STORE_FILE|NUVIO_SUPABASE_URL|NUVIO_SUPABASE_ANON_KEY|NUVIO_SUPABASE_FALLBACK_URL|TMDB_API_KEY)[[:space:]]*=/d' release-signing.properties
           printf '\nNUVIO_RELEASE_STORE_FILE=%s\n' "${keystore_path}" >> release-signing.properties
           cat release-signing.properties >> local.properties
+
+          # TMDB is a build-time runtime configuration. Prefer the dedicated
+          # Actions secret when present, while retaining compatibility with
+          # an existing TMDB_API_KEY in the release-properties secret.
+          if [[ -n "${TMDB_API_KEY}" ]]; then
+            printf 'TMDB_API_KEY=%s\n' "${TMDB_API_KEY}" >> local.properties
+          fi
+
+          if ! grep -Eq '^TMDB_API_KEY=.+$' local.properties; then
+            echo "Missing TMDB_API_KEY. Add it as the TMDB_API_KEY Actions secret or include it in NUVIO_LOCAL_PROPERTIES_BASE64." >&2
+            exit 1
+          fi
 
           required_properties=(
             NUVIO_RELEASE_STORE_PASSWORD
