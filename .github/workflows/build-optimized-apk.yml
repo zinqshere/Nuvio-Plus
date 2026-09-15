@@ -55,6 +55,12 @@ jobs:
         env:
           RELEASE_PROPERTIES_BASE64: ${{ secrets.NUVIO_LOCAL_PROPERTIES_BASE64 }}
           RELEASE_KEYSTORE_BASE64: ${{ secrets.NUVIO_RELEASE_KEYSTORE_BASE64 }}
+          TRAKT_CLIENT_ID_SECRET: ${{ secrets.TRAKT_CLIENT_ID }}
+          TRAKT_CLIENT_SECRET_SECRET: ${{ secrets.TRAKT_CLIENT_SECRET }}
+          TRAKT_REDIRECT_URI_SECRET: ${{ secrets.TRAKT_REDIRECT_URI }}
+          SIMKL_CLIENT_ID_SECRET: ${{ secrets.SIMKL_CLIENT_ID }}
+          SIMKL_REDIRECT_URI_SECRET: ${{ secrets.SIMKL_REDIRECT_URI }}
+          SIMKL_APP_NAME_SECRET: ${{ secrets.SIMKL_APP_NAME }}
         run: |
           set -euo pipefail
 
@@ -83,10 +89,6 @@ jobs:
             exit 1
           fi
 
-          # Build-time OAuth credentials are sourced from the release-properties
-          # secret, just like signing credentials. They are deliberately not
-          # committed to Git, while the generated runtime config makes them
-          # available to the Android/iOS client code during compilation.
           printf 'sdk.dir=%s\n' "${SDK_DIR}" > local.properties
 
           if [[ -z "${RELEASE_PROPERTIES_BASE64}" || -z "${RELEASE_KEYSTORE_BASE64}" ]]; then
@@ -104,10 +106,44 @@ jobs:
           printf 'NUVIO_RELEASE_STORE_FILE=%s\n' "${keystore_path}" >> release-signing.properties
           cat release-signing.properties >> local.properties
 
+          # Dedicated tracking-app secrets are optional overrides. This keeps
+          # the existing NUVIO_LOCAL_PROPERTIES_BASE64 secret compatible while
+          # allowing Trakt/Simkl credentials to be managed independently.
+          if [[ -n "${TRAKT_CLIENT_ID_SECRET}" ]]; then
+            printf 'TRAKT_CLIENT_ID=%s\n' "${TRAKT_CLIENT_ID_SECRET}" >> local.properties
+          fi
+          if [[ -n "${TRAKT_CLIENT_SECRET_SECRET}" ]]; then
+            printf 'TRAKT_CLIENT_SECRET=%s\n' "${TRAKT_CLIENT_SECRET_SECRET}" >> local.properties
+          fi
+          if [[ -n "${TRAKT_REDIRECT_URI_SECRET}" ]]; then
+            printf 'TRAKT_REDIRECT_URI=%s\n' "${TRAKT_REDIRECT_URI_SECRET}" >> local.properties
+          fi
+          if [[ -n "${SIMKL_CLIENT_ID_SECRET}" ]]; then
+            printf 'SIMKL_CLIENT_ID=%s\n' "${SIMKL_CLIENT_ID_SECRET}" >> local.properties
+          fi
+          if [[ -n "${SIMKL_REDIRECT_URI_SECRET}" ]]; then
+            printf 'SIMKL_REDIRECT_URI=%s\n' "${SIMKL_REDIRECT_URI_SECRET}" >> local.properties
+          fi
+          if [[ -n "${SIMKL_APP_NAME_SECRET}" ]]; then
+            printf 'SIMKL_APP_NAME=%s\n' "${SIMKL_APP_NAME_SECRET}" >> local.properties
+          fi
+
+          # These redirect/app-name values are safe public configuration and
+          # match the defaults used by the client code.
+          if ! grep -Eq '^TRAKT_REDIRECT_URI=.+' local.properties; then
+            printf 'TRAKT_REDIRECT_URI=nuvio://auth/trakt\n' >> local.properties
+          fi
+          if ! grep -Eq '^SIMKL_REDIRECT_URI=.+' local.properties; then
+            printf 'SIMKL_REDIRECT_URI=nuvio://auth/simkl\n' >> local.properties
+          fi
+          if ! grep -Eq '^SIMKL_APP_NAME=.+' local.properties; then
+            printf 'SIMKL_APP_NAME=nuvio\n' >> local.properties
+          fi
+
           required_properties=(
             NUVIO_RELEASE_STORE_PASSWORD
-            NUVIO_RELEASE_KEY_ALIAS
-            NUVIO_RELEASE_KEY_PASSWORD
+            NUVIO_KEY_ALIAS
+            NUVIO_KEY_PASSWORD
             TRAKT_CLIENT_ID
             TRAKT_CLIENT_SECRET
             TRAKT_REDIRECT_URI
