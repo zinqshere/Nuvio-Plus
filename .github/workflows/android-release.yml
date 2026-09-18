@@ -69,7 +69,6 @@ jobs:
             echo "Releases must be dispatched from the default branch (${DEFAULT_BRANCH})." >&2
             exit 1
           fi
-
           if git rev-parse --verify --quiet "refs/tags/${RELEASE_TAG}"; then
             echo "Tag ${RELEASE_TAG} already exists." >&2
             exit 1
@@ -78,12 +77,8 @@ jobs:
             echo "A GitHub release for ${RELEASE_TAG} already exists." >&2
             exit 1
           fi
-
           if [[ "${RELEASE_MODE}" != "dry-run" ]]; then
-            required_secrets=(
-              RELEASE_PROPERTIES_BASE64
-              RELEASE_KEYSTORE_BASE64
-            )
+            required_secrets=(RELEASE_PROPERTIES_BASE64 RELEASE_KEYSTORE_BASE64)
             missing=()
             for secret_name in "${required_secrets[@]}"; do
               if [[ -z "${!secret_name}" ]]; then
@@ -108,12 +103,10 @@ jobs:
             --repository "${GITHUB_REPOSITORY}" \
             --exclude "${EXCLUDE_COMMITS}" \
             > release-notes.md
-
           if [[ ! -s release-notes.md ]]; then
             echo "No release-note commits were found." >&2
             exit 1
           fi
-
           {
             echo "## ${{ steps.release.outputs.version }} release notes"
             echo
@@ -137,6 +130,7 @@ jobs:
       RELEASE_VERSION: ${{ needs.prepare.outputs.tag }}
       RELEASE_PROPERTIES_BASE64: ${{ secrets.NUVIO_LOCAL_PROPERTIES_BASE64 }}
       RELEASE_KEYSTORE_BASE64: ${{ secrets.NUVIO_RELEASE_KEYSTORE_BASE64 }}
+      TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
 
     steps:
       - name: Check out source
@@ -147,24 +141,19 @@ jobs:
         run: |
           set -euo pipefail
           MPVKIT_SHA="d5cf091c80368bbbc1bbf2d195fbc55d926df888"
-
           git clone --no-checkout https://github.com/NuvioMedia/MPVKit.git MPVKit
           git -C MPVKit checkout --detach "${MPVKIT_SHA}"
           git -C MPVKit config submodule.recurse false
-
           test "$(git -C MPVKit rev-parse HEAD)" = "${MPVKIT_SHA}"
 
       - name: Apply PCM volume-gain audio pipeline patch
         shell: bash
         run: |
           set -euo pipefail
-
           git apply --check .github/patches/volume-gain-audio-sink.patch
           git apply .github/patches/volume-gain-audio-sink.patch
           git diff --check
-
-          grep -q "NuvioVolumeGainAudioProcessor" \
-            composeApp/src/androidMain/kotlin/com/nuvio/app/features/player/PlayerEngine.android.kt
+          grep -q "NuvioVolumeGainAudioProcessor" composeApp/src/androidMain/kotlin/com/nuvio/app/features/player/PlayerEngine.android.kt
 
       - name: Set up Java
         uses: actions/setup-java@v5
@@ -179,38 +168,25 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           keystore_path="${RUNNER_TEMP}/nuvio-release.jks"
           printf '%s' "${RELEASE_KEYSTORE_BASE64}" | base64 --decode > "${keystore_path}"
-
-          # Resolve the live official backend configuration instead of trusting
-          # stale authentication values stored in the release properties secret.
-          DISCOVERY_URL="https://api.nuvio.tv/.well-known/nuvio"
-          discovery_json="$(curl --fail --silent --show-error --location --max-time 20 "${DISCOVERY_URL}")"
-          NUVIO_SUPABASE_URL="$(jq -er '.backend_url' <<<"${discovery_json}")"
-          NUVIO_SUPABASE_ANON_KEY="$(jq -er '.publishable_key' <<<"${discovery_json}")"
-          EMAIL_PASSWORD_AUTH="$(jq -er '.capabilities.email_password_auth' <<<"${discovery_json}")"
-
-          if [[ "${NUVIO_SUPABASE_URL%/}" != "https://api.nuvio.tv" ]]; then
-            echo "Official discovery returned an unexpected backend URL: ${NUVIO_SUPABASE_URL}" >&2
-            exit 1
-          fi
-          if [[ "${EMAIL_PASSWORD_AUTH}" != "true" ]]; then
-            echo "Official backend does not advertise email/password authentication." >&2
-            exit 1
-          fi
-          if [[ -z "${NUVIO_SUPABASE_ANON_KEY}" ]]; then
-            echo "Official discovery returned an empty publishable key." >&2
-            exit 1
-          fi
-
           printf '%s' "${RELEASE_PROPERTIES_BASE64}" | base64 --decode > local.properties
-          sed -i -E '/^[[:space:]]*(sdk\.dir|NUVIO_RELEASE_STORE_FILE|NUVIO_SUPABASE_URL|NUVIO_SUPABASE_ANON_KEY|NUVIO_SUPABASE_FALLBACK_URL)[[:space:]]*=/d' local.properties
+          sed -i -E '/^[[:space:]]*(sdk\.dir|NUVIO_RELEASE_STORE_FILE|NUVIO_SUPABASE_URL|NUVIO_SUPABASE_ANON_KEY|NUVIO_SUPABASE_FALLBACK_URL|TMDB_API_KEY)[[:space:]]*=/d' local.properties
           {
-            printf '\nNUVIO_SUPABASE_URL=%s\n' "${NUVIO_SUPABASE_URL}"
-            printf 'NUVIO_SUPABASE_ANON_KEY=%s\n' "${NUVIO_SUPABASE_ANON_KEY}"
-            printf 'NUVIO_RELEASE_STORE_FILE=%s\n' "${keystore_path}"
+            printf '\nNUVIO_RELEASE_STORE_FILE=%s\n' "${keystore_path}"
           } >> local.properties
+
+          # Keep TMDB explicit and build-time configured. If the dedicated
+          # Actions secret is set, it takes precedence over the shared
+          # release-properties bundle. Otherwise an existing TMDB_API_KEY in
+          # NUVIO_LOCAL_PROPERTIES_BASE64 remains valid.
+          if [[ -n "${TMDB_API_KEY}" ]]; then
+            printf 'TMDB_API_KEY=%s\n' "${TMDB_API_KEY}" >> local.properties
+          fi
+          if ! grep -Eq '^TMDB_API_KEY=.+$' local.properties; then
+            echo "Missing TMDB_API_KEY. Add it as the TMDB_API_KEY Actions secret or include it in NUVIO_LOCAL_PROPERTIES_BASE64." >&2
+            exit 1
+          fi
 
           required_properties=(
             NUVIO_RELEASE_STORE_PASSWORD
@@ -278,15 +254,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
-          # Keep iOS builds on the same live official authentication
-          # configuration as Android builds.
           DISCOVERY_URL="https://api.nuvio.tv/.well-known/nuvio"
           discovery_json="$(curl --fail --silent --show-error --location --max-time 20 "${DISCOVERY_URL}")"
           NUVIO_SUPABASE_URL="$(jq -er '.backend_url' <<<"${discovery_json}")"
           NUVIO_SUPABASE_ANON_KEY="$(jq -er '.publishable_key' <<<"${discovery_json}")"
           EMAIL_PASSWORD_AUTH="$(jq -er '.capabilities.email_password_auth' <<<"${discovery_json}")"
-
           if [[ "${NUVIO_SUPABASE_URL%/}" != "https://api.nuvio.tv" ]]; then
             echo "Official discovery returned an unexpected backend URL: ${NUVIO_SUPABASE_URL}" >&2
             exit 1
@@ -299,7 +271,6 @@ jobs:
             echo "Official discovery returned an empty publishable key." >&2
             exit 1
           fi
-
           printf '%s' "${RELEASE_PROPERTIES_BASE64}" | base64 --decode > local.properties
           sed -i '' -E '/^[[:space:]]*(sdk\.dir|NUVIO_RELEASE_STORE_FILE|NUVIO_SUPABASE_URL|NUVIO_SUPABASE_ANON_KEY|NUVIO_SUPABASE_FALLBACK_URL)[[:space:]]*=/d' local.properties
           {
@@ -367,7 +338,6 @@ jobs:
             echo "No release packages were produced." >&2
             exit 1
           fi
-
           release_args=(
             "${RELEASE_TAG}"
             --repo "${GITHUB_REPOSITORY}"
