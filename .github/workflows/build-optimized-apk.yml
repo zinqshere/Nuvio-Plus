@@ -107,6 +107,9 @@ jobs:
           printf '%s' "${RELEASE_KEYSTORE_BASE64}" | base64 --decode > "${keystore_path}"
 
           printf '%s' "${RELEASE_PROPERTIES_BASE64}" | base64 --decode > release-signing.properties
+          # Preserve a bundled TMDB key when the dedicated Actions secret is
+          # not configured, then strip stale build/runtime values.
+          BUNDLED_TMDB_API_KEY="$(grep -m1 '^TMDB_API_KEY=' release-signing.properties | cut -d= -f2- || true)"
           # Strip all build/runtime values that must come from the current
           # workflow rather than from the shared signing bundle.
           sed -i -E '/^[[:space:]]*(sdk\.dir|NUVIO_RELEASE_STORE_FILE|NUVIO_SUPABASE_URL|NUVIO_SUPABASE_ANON_KEY|NUVIO_SUPABASE_FALLBACK_URL|TMDB_API_KEY)[[:space:]]*=/d' release-signing.properties
@@ -126,6 +129,8 @@ jobs:
           # an existing TMDB_API_KEY in the release-properties secret.
           if [[ -n "${TMDB_API_KEY}" ]]; then
             printf 'TMDB_API_KEY=%s\n' "${TMDB_API_KEY}" >> local.properties
+          elif [[ -n "${BUNDLED_TMDB_API_KEY}" ]]; then
+            printf 'TMDB_API_KEY=%s\n' "${BUNDLED_TMDB_API_KEY}" >> local.properties
           fi
 
           if ! grep -Eq '^TMDB_API_KEY=.+$' local.properties; then
