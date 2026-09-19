@@ -73,12 +73,11 @@ jobs:
 
           DISCOVERY_VERSION="$(jq -er '.version' <<<"${discovery_json}")"
           DISCOVERY_SERVICE="$(jq -er '.service' <<<"${discovery_json}")"
-          SELF_HOSTED="$(jq -er '.self_hosted' <<<"${discovery_json}")"
           NUVIO_SUPABASE_URL="$(jq -er '.backend_url' <<<"${discovery_json}")"
           NUVIO_SUPABASE_ANON_KEY="$(jq -er '.publishable_key' <<<"${discovery_json}")"
           EMAIL_PASSWORD_AUTH="$(jq -er '.capabilities.email_password_auth' <<<"${discovery_json}")"
 
-          if [[ "${DISCOVERY_VERSION}" != "1" || "${DISCOVERY_SERVICE,,}" != "nuvio" || "${SELF_HOSTED}" != "false" ]]; then
+          if [[ "${DISCOVERY_VERSION}" != "1" || "${DISCOVERY_SERVICE,,}" != "nuvio" ]]; then
             echo "Official discovery document is invalid for the official Nuvio service." >&2
             exit 1
           fi
