@@ -65,12 +65,23 @@ jobs:
             exit 1
           fi
 
+          # The official backend configuration is authoritative for this
+          # optimized APK. Never inherit Supabase credentials from the shared
+          # signing-properties secret because those values can become stale.
           DISCOVERY_URL="https://api.nuvio.tv/.well-known/nuvio"
           discovery_json="$(curl --fail --silent --show-error --location --max-time 20 "${DISCOVERY_URL}")"
+
+          DISCOVERY_VERSION="$(jq -er '.version' <<<"${discovery_json}")"
+          DISCOVERY_SERVICE="$(jq -er '.service' <<<"${discovery_json}")"
+          SELF_HOSTED="$(jq -er '.self_hosted' <<<"${discovery_json}")"
           NUVIO_SUPABASE_URL="$(jq -er '.backend_url' <<<"${discovery_json}")"
           NUVIO_SUPABASE_ANON_KEY="$(jq -er '.publishable_key' <<<"${discovery_json}")"
           EMAIL_PASSWORD_AUTH="$(jq -er '.capabilities.email_password_auth' <<<"${discovery_json}")"
 
+          if [[ "${DISCOVERY_VERSION}" != "1" || "${DISCOVERY_SERVICE,,}" != "nuvio" || "${SELF_HOSTED}" != "false" ]]; then
+            echo "Official discovery document is invalid for the official Nuvio service." >&2
+            exit 1
+          fi
           if [[ "${NUVIO_SUPABASE_URL%/}" != "https://api.nuvio.tv" ]]; then
             echo "Official discovery returned an unexpected backend URL: ${NUVIO_SUPABASE_URL}" >&2
             exit 1
@@ -99,9 +110,19 @@ jobs:
           printf '%s' "${RELEASE_KEYSTORE_BASE64}" | base64 --decode > "${keystore_path}"
 
           printf '%s' "${RELEASE_PROPERTIES_BASE64}" | base64 --decode > release-signing.properties
+          # Strip all build/runtime values that must come from the current
+          # workflow rather than from the shared signing bundle.
           sed -i -E '/^[[:space:]]*(sdk\.dir|NUVIO_RELEASE_STORE_FILE|NUVIO_SUPABASE_URL|NUVIO_SUPABASE_ANON_KEY|NUVIO_SUPABASE_FALLBACK_URL|TMDB_API_KEY)[[:space:]]*=/d' release-signing.properties
           printf '\nNUVIO_RELEASE_STORE_FILE=%s\n' "${keystore_path}" >> release-signing.properties
           cat release-signing.properties >> local.properties
+
+          # Re-assert the official auth values after merging the signing
+          # properties. This guarantees the generated APK cannot accidentally
+          # use an older Supabase configuration from the secret.
+          {
+            printf 'NUVIO_SUPABASE_URL=%s\n' "${NUVIO_SUPABASE_URL}"
+            printf 'NUVIO_SUPABASE_ANON_KEY=%s\n' "${NUVIO_SUPABASE_ANON_KEY}"
+          } >> local.properties
 
           # TMDB is a build-time runtime configuration. Prefer the dedicated
           # Actions secret when present, while retaining compatibility with
@@ -126,6 +147,16 @@ jobs:
               exit 1
             fi
           done
+
+          # Fail closed if duplicate Supabase properties somehow survived.
+          if (( $(grep -c '^NUVIO_SUPABASE_URL=' local.properties) != 1 )); then
+            echo "Expected exactly one NUVIO_SUPABASE_URL in local.properties." >&2
+            exit 1
+          fi
+          if (( $(grep -c '^NUVIO_SUPABASE_ANON_KEY=' local.properties) != 1 )); then
+            echo "Expected exactly one NUVIO_SUPABASE_ANON_KEY in local.properties." >&2
+            exit 1
+          fi
 
       - name: Make Gradle executable
         run: chmod +x ./gradlew
