@@ -94,11 +94,9 @@ jobs:
             exit 1
           fi
 
-          {
-            printf 'sdk.dir=%s\n' "${SDK_DIR}"
-            printf 'NUVIO_SUPABASE_URL=%s\n' "${NUVIO_SUPABASE_URL}"
-            printf 'NUVIO_SUPABASE_ANON_KEY=%s\n' "${NUVIO_SUPABASE_ANON_KEY}"
-          } > local.properties
+          # Start with only the SDK path. Auth values are appended once,
+          # after the shared signing properties have been merged.
+          printf 'sdk.dir=%s\n' "${SDK_DIR}" > local.properties
 
           if [[ -z "${RELEASE_PROPERTIES_BASE64}" || -z "${RELEASE_KEYSTORE_BASE64}" ]]; then
             echo "Release signing secrets are required for update-compatible optimized APKs." >&2
