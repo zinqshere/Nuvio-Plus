@@ -168,12 +168,38 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+
+          DISCOVERY_URL="https://api.nuvio.tv/.well-known/nuvio"
+          discovery_json="$(curl --fail --silent --show-error --location --max-time 20 "${DISCOVERY_URL}")"
+          NUVIO_SUPABASE_URL="$(jq -er '.backend_url' <<<"${discovery_json}")"
+          NUVIO_SUPABASE_ANON_KEY="$(jq -er '.publishable_key' <<<"${discovery_json}")"
+          EMAIL_PASSWORD_AUTH="$(jq -er '.capabilities.email_password_auth' <<<"${discovery_json}")"
+
+          if [[ "${NUVIO_SUPABASE_URL%/}" != "https://api.nuvio.tv" ]]; then
+            echo "Official discovery returned an unexpected backend URL: ${NUVIO_SUPABASE_URL}" >&2
+            exit 1
+          fi
+          if [[ "${EMAIL_PASSWORD_AUTH}" != "true" ]]; then
+            echo "Official backend does not advertise email/password authentication." >&2
+            exit 1
+          fi
+          if [[ -z "${NUVIO_SUPABASE_ANON_KEY}" ]]; then
+            echo "Official discovery returned an empty publishable key." >&2
+            exit 1
+          fi
+
           keystore_path="${RUNNER_TEMP}/nuvio-release.jks"
           printf '%s' "${RELEASE_KEYSTORE_BASE64}" | base64 --decode > "${keystore_path}"
           printf '%s' "${RELEASE_PROPERTIES_BASE64}" | base64 --decode > local.properties
+
+          # The shared release-properties bundle may contain stale or missing
+          # Supabase values. Remove them and inject the currently advertised
+          # official configuration discovered above.
           sed -i -E '/^[[:space:]]*(sdk\.dir|NUVIO_RELEASE_STORE_FILE|NUVIO_SUPABASE_URL|NUVIO_SUPABASE_ANON_KEY|NUVIO_SUPABASE_FALLBACK_URL|TMDB_API_KEY)[[:space:]]*=/d' local.properties
           {
             printf '\nNUVIO_RELEASE_STORE_FILE=%s\n' "${keystore_path}"
+            printf 'NUVIO_SUPABASE_URL=%s\n' "${NUVIO_SUPABASE_URL}"
+            printf 'NUVIO_SUPABASE_ANON_KEY=%s\n' "${NUVIO_SUPABASE_ANON_KEY}"
           } >> local.properties
 
           # Keep TMDB explicit and build-time configured. If the dedicated
