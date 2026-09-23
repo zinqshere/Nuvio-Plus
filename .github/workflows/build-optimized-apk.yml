@@ -57,6 +57,7 @@ jobs:
           RELEASE_KEYSTORE_BASE64: ${{ secrets.NUVIO_RELEASE_KEYSTORE_BASE64 }}
           TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
           SIMKL_CLIENT_ID: ${{ secrets.SIMKL_CLIENT_ID }}
+          MDBLIST_CLIENT_ID: ${{ secrets.MDBLIST_CLIENT_ID }}
         run: |
           set -euo pipefail
 
@@ -117,6 +118,7 @@ jobs:
           printf '\nNUVIO_RELEASE_STORE_FILE=%s\n' "${keystore_path}" >> release-signing.properties
           cat release-signing.properties >> local.properties
           printf 'SIMKL_CLIENT_ID=%s\n' "${SIMKL_CLIENT_ID}" >> local.properties
+          printf 'MDBLIST_CLIENT_ID=%s\n' "${MDBLIST_CLIENT_ID}" >> local.properties
 
           # Re-assert the official auth values after merging the signing
           # properties. This guarantees the generated APK cannot accidentally
