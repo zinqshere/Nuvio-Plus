@@ -292,6 +292,31 @@ class SimklApiClientTest {
     }
 
     @Test
+    fun `authenticated 401 refreshes token once and retries request`() = runBlocking {
+        val engine = RecordingEngine(response(401), response(200))
+        val refreshes = mutableListOf<Int>()
+        val client = SimklApiClient(
+            engine = engine,
+            accessToken = { if (refreshes.isEmpty()) "expired-token" else "fresh-token" },
+            onUnauthorized = { error("Refresh should have succeeded") },
+            refreshAccessToken = {
+                refreshes += 1
+                "fresh-token"
+            },
+            nowEpochMs = { 0L },
+            sleep = {},
+            retryJitterMs = { 0L },
+        )
+
+        client.execute(SimklApiRequest(SimklHttpMethod.GET, "/private"))
+
+        assertEquals(1, refreshes.size)
+        assertEquals(2, engine.requests.size)
+        assertEquals("Bearer expired-token", engine.requests[0].headers["Authorization"])
+        assertEquals("Bearer fresh-token", engine.requests[1].headers["Authorization"])
+    }
+
+    @Test
     fun `duplicate scrobble stop is a soft success`() = runBlocking {
         val engine = RecordingEngine(response(409))
         val harness = TestHarness(engine)
