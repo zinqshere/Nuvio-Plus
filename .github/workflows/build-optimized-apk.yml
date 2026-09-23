@@ -119,8 +119,8 @@ jobs:
           cat release-signing.properties >> local.properties
           printf 'SIMKL_CLIENT_ID=%s\n' "${SIMKL_CLIENT_ID}" >> local.properties
           if [ -n "${MDBLIST_CLIENT_ID:-}" ]; then
-  printf 'MDBLIST_CLIENT_ID=%s\n' "${MDBLIST_CLIENT_ID}" >> local.properties
-fi
+            printf 'MDBLIST_CLIENT_ID=%s\n' "${MDBLIST_CLIENT_ID}" >> local.properties
+          fi
 
           # Re-assert the official auth values after merging the signing
           # properties. This guarantees the generated APK cannot accidentally
