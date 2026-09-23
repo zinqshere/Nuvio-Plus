@@ -4,7 +4,8 @@ import com.nuvio.app.core.build.AppVersionConfig
 import io.ktor.http.encodeURLParameter
 
 internal const val SIMKL_API_BASE_URL = "https://api.simkl.com"
-internal const val SIMKL_AUTHORIZE_URL = "https://simkl.com/oauth/authorize"
+internal const val SIMKL_AUTHORIZE_URL = "https://simkl.com/oauth2/authorize"
+internal const val SIMKL_TOKEN_PATH = "/oauth2/token"
 
 internal val simklAppVersion: String
     get() = AppVersionConfig.VERSION_NAME.ifBlank { "dev" }
