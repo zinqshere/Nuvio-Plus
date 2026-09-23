@@ -214,7 +214,9 @@ jobs:
           # current discovery values are authoritative and cannot be duplicated.
           cat release-signing.properties > local.properties
           printf 'SIMKL_CLIENT_ID=%s\n' "${SIMKL_CLIENT_ID}" >> local.properties
-          printf 'MDBLIST_CLIENT_ID=%s\n' "${MDBLIST_CLIENT_ID}" >> local.properties
+          if [ -n "${MDBLIST_CLIENT_ID:-}" ]; then
+  printf 'MDBLIST_CLIENT_ID=%s\n' "${MDBLIST_CLIENT_ID}" >> local.properties
+fi
           {
             printf '\nNUVIO_RELEASE_STORE_FILE=%s\n' "${keystore_path}"
             printf 'NUVIO_SUPABASE_URL=%s\n' "${NUVIO_SUPABASE_URL}"
