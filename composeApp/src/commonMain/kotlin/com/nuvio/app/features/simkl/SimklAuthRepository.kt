@@ -24,6 +24,8 @@ import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
+private const val SIMKL_TOKEN_RESPONSE_MAX_BYTES = 64 * 1024
+
 object SimklAuthRepository : TrackingAuthProvider {
     private val log = Logger.withTag("SimklAuth")
     private val json = Json {
@@ -175,7 +177,8 @@ object SimklAuthRepository : TrackingAuthProvider {
 
     internal suspend fun authorizedAccessToken(): String? {
         ensureLoaded()
-        val token = accessToken?.takeIf(String::isNotBlank) ?: return null
+        val token = accessToken?.takeIf(String::isNotBlank)
+        if (token == null) return refreshAccessToken()
         val expiresAt = storedState.tokenExpiresAtEpochMs
         if (expiresAt != null && SimklPlatformClock.nowEpochMs() >= expiresAt - TOKEN_EXPIRY_SKEW_MS) {
             return refreshAccessToken()
@@ -201,7 +204,7 @@ object SimklAuthRepository : TrackingAuthProvider {
                         clientId = SimklConfig.CLIENT_ID,
                     ),
                 ),
-                maxResponseBodyBytes = SIMKL_MAX_RESPONSE_BODY_BYTES,
+                maxResponseBodyBytes = SIMKL_TOKEN_RESPONSE_MAX_BYTES,
             )
         } catch (error: CancellationException) {
             throw error
@@ -372,8 +375,6 @@ object SimklAuthRepository : TrackingAuthProvider {
         ) {
             accessToken = null
             SimklAuthStorage.saveAccessToken(null)
-            SimklAuthStorage.saveRefreshToken(null)
-            storedState = SimklStoredAuthState()
             persistMetadata()
         }
         if (storedState.hasPendingAuthorization && isSimklAuthorizationExpired(
