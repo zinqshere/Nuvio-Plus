@@ -132,6 +132,7 @@ jobs:
       RELEASE_KEYSTORE_BASE64: ${{ secrets.NUVIO_RELEASE_KEYSTORE_BASE64 }}
       TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
       SIMKL_CLIENT_ID: ${{ secrets.SIMKL_CLIENT_ID }}
+      MDBLIST_CLIENT_ID: ${{ secrets.MDBLIST_CLIENT_ID }}
 
     steps:
       - name: Check out source
@@ -213,6 +214,7 @@ jobs:
           # current discovery values are authoritative and cannot be duplicated.
           cat release-signing.properties > local.properties
           printf 'SIMKL_CLIENT_ID=%s\n' "${SIMKL_CLIENT_ID}" >> local.properties
+          printf 'MDBLIST_CLIENT_ID=%s\n' "${MDBLIST_CLIENT_ID}" >> local.properties
           {
             printf '\nNUVIO_RELEASE_STORE_FILE=%s\n' "${keystore_path}"
             printf 'NUVIO_SUPABASE_URL=%s\n' "${NUVIO_SUPABASE_URL}"
