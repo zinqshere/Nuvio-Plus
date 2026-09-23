@@ -236,7 +236,7 @@ object SimklAuthRepository : TrackingAuthProvider {
                 SimklApi.client.execute(
                     SimklApiRequest(
                         method = SimklHttpMethod.POST,
-                        path = "/oauth/token",
+                        path = SIMKL_TOKEN_PATH,
                         body = json.encodeToString(request),
                         requiresAuthentication = false,
                         retryPolicy = SimklRetryPolicy.NEVER,
