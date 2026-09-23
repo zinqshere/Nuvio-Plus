@@ -96,7 +96,7 @@ internal class SimklApiClient(
         }
         var syncWriteLockRetried = false
         var reauthenticated = false
-        for (attempt in 0 until maxAttempts) {
+        for (attempt in 0 until maxAttempts + 1) {
             val response = try {
                 executeRateLimited(request.method) {
                     engine.execute(
@@ -161,7 +161,7 @@ internal class SimklApiClient(
                 }
                 SimklResponseAction.FAIL -> throw response.toApiException(json)
                 SimklResponseAction.RETRY -> {
-                    if (attempt == maxAttempts - 1) throw response.toApiException(json)
+                    if (attempt >= maxAttempts - 1) throw response.toApiException(json)
                     sleep(
                         retryDelayMs(
                             attempt = attempt,
