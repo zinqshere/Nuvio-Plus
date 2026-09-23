@@ -112,7 +112,7 @@ internal class SimklApiClient(
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
-                if (attempt == maxAttempts - 1) {
+                if (attempt >= maxAttempts - 1) {
                     throw SimklApiException(
                         status = null,
                         errorCode = "transport_failure",
