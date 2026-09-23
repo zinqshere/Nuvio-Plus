@@ -65,7 +65,7 @@ internal fun interface SimklHttpEngine {
 internal class SimklApiClient(
     private val engine: SimklHttpEngine,
     private val accessToken: suspend () -> String?,
-    private val onUnauthorized: suspend () -> Unit,
+    private val onUnauthorized: () -> Unit,
     private val refreshAccessToken: (suspend () -> String?)? = null,
     private val nowEpochMs: () -> Long = SimklPlatformClock::nowEpochMs,
     private val sleep: suspend (Long) -> Unit = { delayMs -> delay(delayMs) },
