@@ -131,6 +131,8 @@ jobs:
       RELEASE_PROPERTIES_BASE64: ${{ secrets.NUVIO_LOCAL_PROPERTIES_BASE64 }}
       RELEASE_KEYSTORE_BASE64: ${{ secrets.NUVIO_RELEASE_KEYSTORE_BASE64 }}
       TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+      SIMKL_CLIENT_ID: ${{ secrets.SIMKL_CLIENT_ID }}
+      MDBLIST_CLIENT_ID: ${{ secrets.MDBLIST_CLIENT_ID }}
 
     steps:
       - name: Check out source
@@ -211,6 +213,10 @@ jobs:
           # Rebuild local.properties from the cleaned signing bundle so the
           # current discovery values are authoritative and cannot be duplicated.
           cat release-signing.properties > local.properties
+          printf 'SIMKL_CLIENT_ID=%s\n' "${SIMKL_CLIENT_ID}" >> local.properties
+          if [ -n "${MDBLIST_CLIENT_ID:-}" ]; then
+            printf 'MDBLIST_CLIENT_ID=%s\n' "${MDBLIST_CLIENT_ID}" >> local.properties
+          fi
           {
             printf '\nNUVIO_RELEASE_STORE_FILE=%s\n' "${keystore_path}"
             printf 'NUVIO_SUPABASE_URL=%s\n' "${NUVIO_SUPABASE_URL}"
@@ -233,6 +239,7 @@ jobs:
             NUVIO_RELEASE_STORE_PASSWORD
             NUVIO_RELEASE_KEY_ALIAS
             NUVIO_RELEASE_KEY_PASSWORD
+            SIMKL_CLIENT_ID
           )
           for property_name in "${required_properties[@]}"; do
             if ! grep -Eq "^${property_name}=.+" local.properties; then
@@ -264,6 +271,7 @@ jobs:
       NUVIO_GRADLE_JVMARGS: -Xmx4608M -Dfile.encoding=UTF-8 -XX:MaxMetaspaceSize=768M
       NUVIO_KOTLIN_NATIVE_JVMARGS: -Xmx4608M
       RELEASE_PROPERTIES_BASE64: ${{ secrets.NUVIO_LOCAL_PROPERTIES_BASE64 }}
+      SIMKL_CLIENT_ID: ${{ secrets.SIMKL_CLIENT_ID }}
 
     steps:
       - name: Check out source
@@ -313,6 +321,7 @@ jobs:
             exit 1
           fi
           printf '%s' "${RELEASE_PROPERTIES_BASE64}" | base64 --decode > local.properties
+          printf 'SIMKL_CLIENT_ID=%s\n' "${SIMKL_CLIENT_ID}" >> local.properties
           sed -i '' -E '/^[[:space:]]*(sdk\.dir|NUVIO_RELEASE_STORE_FILE|NUVIO_SUPABASE_URL|NUVIO_SUPABASE_ANON_KEY|NUVIO_SUPABASE_FALLBACK_URL)[[:space:]]*=/d' local.properties
           {
             printf '\nNUVIO_SUPABASE_URL=%s\n' "${NUVIO_SUPABASE_URL}"
