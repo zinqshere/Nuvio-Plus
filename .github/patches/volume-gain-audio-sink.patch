@@ -10,7 +10,7 @@
  import androidx.media3.exoplayer.ExoPlayer
  import androidx.media3.exoplayer.ForwardingRenderer
  import androidx.media3.exoplayer.Renderer
-@@ -2249,6 +2250,19 @@
+@@ -2249,10 +2250,23 @@
      private val shouldNormalizeCuePositionProvider: () -> Boolean,
      private val shouldStripSdhProvider: () -> Boolean,
      private val videoBoundsFractionProvider: () -> RectF?,
