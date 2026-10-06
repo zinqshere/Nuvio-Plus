@@ -1,14 +1,16 @@
 --- a/composeApp/src/androidMain/kotlin/com/nuvio/app/features/player/PlayerEngine.android.kt
 +++ b/composeApp/src/androidMain/kotlin/com/nuvio/app/features/player/PlayerEngine.android.kt
-@@ -47,6 +47,7 @@
+@@ -44,6 +44,7 @@
+ import androidx.media3.datasource.DataSource
+ import androidx.media3.datasource.DataSpec
+ import androidx.media3.datasource.DefaultDataSource
  import androidx.media3.datasource.TransferListener
- import androidx.media3.exoplayer.DefaultLoadControl
  import androidx.media3.exoplayer.DefaultRenderersFactory
 +import androidx.media3.exoplayer.audio.DefaultAudioSink
  import androidx.media3.exoplayer.ExoPlayer
  import androidx.media3.exoplayer.ForwardingRenderer
  import androidx.media3.exoplayer.Renderer
-@@ -1916,6 +1917,19 @@
+@@ -2249,6 +2250,19 @@
      private val shouldNormalizeCuePositionProvider: () -> Boolean,
      private val shouldStripSdhProvider: () -> Boolean,
      private val videoBoundsFractionProvider: () -> RectF?,
@@ -29,3 +31,6 @@
      override fun buildTextRenderers(
          context: Context,
          output: TextOutput,
+         outputLooper: android.os.Looper,
+         extensionRendererMode: Int,
+         out: ArrayList<Renderer>,
