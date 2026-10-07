@@ -73,12 +73,12 @@ object MemberAccessRepository {
         when (auth) {
             AuthState.Loading -> return
             AuthState.Unauthenticated -> {
-                _access.value = MemberAccess.None
+                _access.value = MemberAccess.None.withAllCosmetics()
                 return
             }
             is AuthState.Authenticated -> {
                 if (auth.isAnonymous) {
-                    _access.value = MemberAccess.None
+                    _access.value = MemberAccess.None.withAllCosmetics()
                     return
                 }
             }
