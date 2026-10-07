@@ -62,7 +62,7 @@ object MemberAccessRepository {
     }
 
     fun clearLocalState() {
-        _access.value = MemberAccess.None
+        _access.value = MemberAccess.None.withAllCosmetics()
         verifiedUserId = null
         verifiedAtMs = 0L
         MemberAssetStorage.clearAccess()
@@ -88,7 +88,7 @@ object MemberAccessRepository {
         _access.value = cached ?: MemberAccess.None
         warmMemberAssets(_access.value)
         val remote = fetchWithRetry() ?: return
-        val effective = saveRemote(account.userId, remote)
+        val effective = saveRemote(account.userId, remote).withAllCosmetics()
         _access.value = effective
         warmMemberAssets(effective)
         verifiedUserId = account.userId
@@ -115,11 +115,11 @@ object MemberAccessRepository {
     private fun loadCached(userId: String): MemberAccess? {
         val stored = loadStoredAccess() ?: return null
         if (stored.userId != userId) return null
-        return stored.toMemberAccess()
+        return stored.toMemberAccess().withAllCosmetics()
     }
 
     private fun hydrateCachedAccess() {
-        val cached = loadStoredAccess()?.toMemberAccess() ?: return
+        val cached = loadStoredAccess()?.toMemberAccess()?.withAllCosmetics() ?: return
         _access.value = cached
         warmMemberAssets(cached)
     }
@@ -140,6 +140,9 @@ object MemberAccessRepository {
             entitlements = CosmeticEntitlements(decodedEntitlements),
         )
     }
+
+    private fun MemberAccess.withAllCosmetics(): MemberAccess =
+        copy(entitlements = CosmeticEntitlements.All)
 
     private fun warmMemberAssets(access: MemberAccess) {
         if (access.entitlements.includes(CosmeticEntitlement.PROFILE_BACKGROUNDS)) {
