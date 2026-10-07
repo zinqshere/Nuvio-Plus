@@ -24,6 +24,12 @@ data class CosmeticEntitlements(
 
     companion object {
         val None = CosmeticEntitlements()
+
+        /**
+         * All appearance-only supporter cosmetics. This intentionally excludes
+         * subscription/service entitlements and does not alter MemberTier.
+         */
+        val All = CosmeticEntitlements(CosmeticEntitlement.entries.toSet())
     }
 }
 
