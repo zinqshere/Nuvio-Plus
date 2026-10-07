@@ -70,6 +70,25 @@ class ThemeAccessTest {
     }
 
     @Test
+    fun allCosmeticEntitlementsExposeEverySupporterTheme() {
+        val themes = availableAppThemes(CosmeticEntitlements.All)
+
+        assertTrue(AppTheme.GOLD in themes)
+        assertTrue(AppTheme.JADE in themes)
+        assertTrue(AppTheme.ROSE_GOLD in themes)
+        assertTrue(AppTheme.ARCTIC_BLUE in themes)
+        assertTrue(AppTheme.GRAPHITE in themes)
+        assertTrue(AppTheme.CUSTOM in themes)
+    }
+
+    @Test
+    fun customGradientRemainsAvailableWithoutMemberTier() {
+        val colors = CustomThemeColors(0x112233, 0x445566, 0x778899)
+
+        assertEquals(colors, resolveCustomThemeColors(colors, null))
+    }
+
+    @Test
     fun customThemeFollowsEntitledPresetsAndPrecedesStandardThemes() {
         val themes = availableAppThemes(
             CosmeticEntitlements(setOf(CosmeticEntitlement.GOLD_THEME)),
