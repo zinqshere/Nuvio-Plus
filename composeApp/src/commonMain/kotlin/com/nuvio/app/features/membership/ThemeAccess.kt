@@ -38,4 +38,4 @@ fun resolveAppTheme(
 }
 
 fun resolveCustomThemeColors(colors: CustomThemeColors, memberTier: MemberTier?): CustomThemeColors =
-    if (memberTier == null) CustomThemeColors.solid(colors.second) else colors
+    colors
