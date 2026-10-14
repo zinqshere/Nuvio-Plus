@@ -2,6 +2,7 @@ package com.nuvio.app
 
 import android.content.Intent
 import android.content.res.Configuration
+import com.nuvio.app.features.autosync.AutoSyncPreferencesAndroid
 import android.os.Bundle
 import androidx.activity.compose.setContent
 
@@ -90,6 +91,7 @@ open class MainActivity : AppCompatActivity() {
         SentryInitializer.start(application)
         super.onCreate(savedInstanceState)
         registerPlatformExitActivity(this)
+        AutoSyncPreferencesAndroid.initialize(applicationContext) // AutoSync hook
         window.setBackgroundDrawableResource(R.color.nuvio_background)
         pipRemoteActionReceiver = PipRemoteActionReceiver.register(this)
         SyncClientIdentityStorage.initialize(applicationContext)
