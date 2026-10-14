@@ -133,6 +133,7 @@ jobs:
       TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
       SIMKL_CLIENT_ID: ${{ secrets.SIMKL_CLIENT_ID }}
       MDBLIST_CLIENT_ID: ${{ secrets.MDBLIST_CLIENT_ID }}
+      TRAKT_CLIENT_ID: ${{ secrets.TRAKT_CLIENT_ID }}
 
     steps:
       - name: Check out source
@@ -216,6 +217,9 @@ jobs:
           printf 'SIMKL_CLIENT_ID=%s\n' "${SIMKL_CLIENT_ID}" >> local.properties
           if [ -n "${MDBLIST_CLIENT_ID:-}" ]; then
             printf 'MDBLIST_CLIENT_ID=%s\n' "${MDBLIST_CLIENT_ID}" >> local.properties
+          fi
+          if [ -n "${TRAKT_CLIENT_ID:-}" ]; then
+            printf 'TRAKT_CLIENT_ID=%s\n' "${TRAKT_CLIENT_ID}" >> local.properties
           fi
           {
             printf '\nNUVIO_RELEASE_STORE_FILE=%s\n' "${keystore_path}"
