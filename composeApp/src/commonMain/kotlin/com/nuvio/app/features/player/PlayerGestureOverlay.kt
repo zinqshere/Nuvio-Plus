@@ -105,9 +105,12 @@ private fun PlayerGestureFeedback(
                     val description = stringResource(
                         if (isBrightness) Res.string.compose_player_brightness else Res.string.compose_player_volume,
                     )
-                    val level = feedback.level?.coerceIn(0f, 1f) ?: 0f
+                    // Brightness remains 0–100%; volume may extend to 200% for the player-side gain.
+                    val rawLevel = feedback.level ?: 0f
+                    val level = rawLevel.coerceIn(0f, if (isBrightness) 1f else 2f)
+                    val barLevel = level.coerceIn(0f, 1f)
                     val trackHeight = minOf(maxHeight / 4, 104.dp)
-                    val animatedLevel by animateFloatAsState(level, tween(80), label = "playerGestureLevel")
+                    val animatedLevel by animateFloatAsState(barLevel, tween(80), label = "playerGestureLevel")
                     val percent = (level * 100f).roundToInt()
                     Column(
                         modifier = Modifier
@@ -116,8 +119,7 @@ private fun PlayerGestureFeedback(
                             .width(6.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
-                        // Centered on the bar; unbounded width lets the digits overflow the 6dp
-                        // column evenly on both sides so the bar itself never moves.
+                        // Keep the percentage readable without moving the centered bar.
                         Text(
                             text = percent.toString(),
                             color = Color.White,
@@ -134,7 +136,7 @@ private fun PlayerGestureFeedback(
                             modifier = Modifier
                                 .semantics {
                                     contentDescription = description
-                                    progressBarRangeInfo = ProgressBarRangeInfo(level, 0f..1f)
+                                    progressBarRangeInfo = ProgressBarRangeInfo(barLevel, 0f..1f)
                                 }
                                 .width(6.dp)
                                 .height(trackHeight)
