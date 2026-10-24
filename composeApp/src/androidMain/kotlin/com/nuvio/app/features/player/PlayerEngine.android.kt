@@ -1835,7 +1835,7 @@ private class NuvioLibmpvView(
      * used by the gesture UI. Android STREAM_MUSIC handles 0–100%; above 100%,
      * STREAM_MUSIC is already at max and libmpv supplies the additional gain.
      */
-    fun startVolumeBoostSync() {
+    private fun startVolumeBoostSync() {
         removeVolumeBoostListener?.invoke()
         removeVolumeBoostListener = AndroidPlayerVolumeBoost.addListener { fraction ->
             executeMpv {
