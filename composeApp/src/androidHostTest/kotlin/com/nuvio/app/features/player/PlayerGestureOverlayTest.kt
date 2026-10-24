@@ -243,14 +243,16 @@ class PlayerGestureOverlayTest {
     }
 
     @Test
-    fun newLayoutShowsVolumeAbove100Percent() {
+    fun newLayoutDisplaysExactVolumePercentagesFrom100To200() {
         useLegacyLayout.value = false
         setPlayerContent()
-        compose.runOnIdle {
-            runtime.showVolumeFeedback(PlayerAudioLevel(1.5f, false))
-        }
 
-        compose.onNodeWithText("150").assertIsDisplayed()
+        listOf(100, 101, 102, 103, 132, 178, 200).forEach { expectedPercent ->
+            compose.runOnIdle {
+                runtime.showVolumeFeedback(PlayerAudioLevel(expectedPercent / 100f, false))
+            }
+            compose.onNodeWithText(expectedPercent.toString()).assertIsDisplayed()
+        }
     }
 
     @Test
