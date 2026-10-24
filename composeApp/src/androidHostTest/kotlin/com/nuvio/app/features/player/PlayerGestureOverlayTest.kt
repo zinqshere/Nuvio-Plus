@@ -242,6 +242,30 @@ class PlayerGestureOverlayTest {
         compose.onNodeWithText("2x").assertDoesNotExist()
     }
 
+    @Test
+    fun newLayoutDisplaysExactVolumePercentagesFrom100To200() {
+        useLegacyLayout.value = false
+        setPlayerContent()
+
+        listOf(100, 101, 102, 103, 132, 178, 200).forEach { expectedPercent ->
+            compose.runOnIdle {
+                runtime.showVolumeFeedback(PlayerAudioLevel(expectedPercent / 100f, false))
+            }
+            compose.onNodeWithText(expectedPercent.toString()).assertIsDisplayed()
+        }
+    }
+
+    @Test
+    fun legacyLayoutShowsVolumeAbove100Percent() {
+        useLegacyLayout.value = true
+        setPlayerContent()
+        compose.runOnIdle {
+            runtime.showVolumeFeedback(PlayerAudioLevel(1.5f, false))
+        }
+
+        compose.onNodeWithText("Volume 150%").assertIsDisplayed()
+    }
+
     private class RecordingController(private val seeks: MutableList<Long>) : PlayerEngineController {
         override fun play() = Unit
         override fun pause() = Unit
