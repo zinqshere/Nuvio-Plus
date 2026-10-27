@@ -150,7 +150,7 @@ internal fun PlayerScreenRuntime.showVolumeFeedback(level: PlayerAudioLevel) {
             messageArgs = if (level.isMuted) emptyList() else listOf("$percentage%"),
             icon = if (level.isMuted) GestureFeedbackIcon.VolumeMuted else GestureFeedbackIcon.Volume,
             isDanger = level.isMuted,
-            level = if (level.isMuted) 0f else level.fraction.coerceIn(0f, 1f),
+            level = if (level.isMuted) 0f else level.fraction.coerceIn(0f, 2f),
         ),
     )
 }
