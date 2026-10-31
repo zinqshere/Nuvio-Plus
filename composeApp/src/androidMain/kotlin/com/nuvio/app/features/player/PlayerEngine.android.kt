@@ -2730,7 +2730,7 @@ private class SubtitleOffsetRenderersFactory(
         // NuvioVolumeGainAudioProcessor can apply the >100% gain to decoded PCM.
         return DefaultAudioSink.Builder(context)
             .setEnableFloatOutput(false)
-            .setEnableAudioOutputPlaybackParameters(enableAudioOutputPlaybackParams)
+            .setEnableAudioTrackPlaybackParams(enableAudioOutputPlaybackParams)
             .setAudioProcessors(arrayOf(NuvioVolumeGainAudioProcessor()))
             .build()
     }
