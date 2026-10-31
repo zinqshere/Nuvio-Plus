@@ -16,15 +16,16 @@ import kotlin.math.roundToInt
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 internal class NuvioVolumeGainAudioProcessor : BaseAudioProcessor() {
     override fun onConfigure(inputAudioFormat: AudioProcessor.AudioFormat): AudioProcessor.AudioFormat {
-        if (inputAudioFormat.encoding != C.ENCODING_PCM_16BIT &&
-            inputAudioFormat.encoding != C.ENCODING_PCM_FLOAT
+        // Leave unsupported PCM encodings untouched instead of failing playback.
+        // Media3 treats NOT_SET as an inactive processor and passes audio through.
+        return if (
+            inputAudioFormat.encoding == C.ENCODING_PCM_16BIT ||
+            inputAudioFormat.encoding == C.ENCODING_PCM_FLOAT
         ) {
-            throw AudioProcessor.UnhandledAudioFormatException(
-                "Nuvio player gain requires PCM 16-bit or PCM float audio.",
-                inputAudioFormat,
-            )
+            inputAudioFormat
+        } else {
+            AudioProcessor.AudioFormat.NOT_SET
         }
-        return inputAudioFormat
     }
 
     override fun queueInput(inputBuffer: ByteBuffer) {
