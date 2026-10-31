@@ -32,14 +32,13 @@ jobs:
           git -C MPVKit config submodule.recurse false
           test "$(git -C MPVKit rev-parse HEAD)" = "${MPVKIT_SHA}"
 
-      - name: Apply PCM volume-gain audio pipeline patch
+      - name: Verify PCM volume-gain audio pipeline
         shell: bash
         run: |
           set -euo pipefail
-          git apply --check .github/patches/volume-gain-audio-sink.patch
-          git apply .github/patches/volume-gain-audio-sink.patch
           git diff --check
           grep -q "NuvioVolumeGainAudioProcessor" composeApp/src/androidMain/kotlin/com/nuvio/app/features/player/PlayerEngine.android.kt
+          grep -q "override fun buildAudioSink" composeApp/src/androidMain/kotlin/com/nuvio/app/features/player/PlayerEngine.android.kt
 
       - name: Set up Java
         uses: actions/setup-java@v5
