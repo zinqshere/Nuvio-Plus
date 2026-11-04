@@ -57,6 +57,7 @@ import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.TransferListener
 import androidx.media3.exoplayer.DefaultRenderersFactory
+import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.ForwardingRenderer
 import androidx.media3.exoplayer.Renderer
@@ -1512,6 +1513,7 @@ private fun LibmpvPlayerSurface(
                     runCatching {
                         Utils.copyAssets(viewContext)
                         initialize(viewContext.filesDir.path, viewContext.cacheDir.path)
+                        startVolumeBoostSync()
                     }.onFailure { error ->
                         Log.e(TAG, "Failed to initialize libmpv", error)
                         latestOnError.value(error.localizedMessage ?: "libmpv unavailable")
@@ -1552,6 +1554,7 @@ private class NuvioLibmpvView(
     private val mpvScope = CoroutineScope(SupervisorJob() + mpvDispatcher)
     private val surfaceReady = CompletableDeferred<Unit>()
     private val released = AtomicBoolean(false)
+    private var removeVolumeBoostListener: (() -> Unit)? = null
     private var currentSourceUrl: String? = null
     private var currentSourceAudioUrl: String? = null
     private var currentRequestHeaders: Map<String, String> = emptyMap()
@@ -2010,10 +2013,26 @@ private class NuvioLibmpvView(
 
     fun releaseMpv() {
         if (!released.compareAndSet(false, true)) return
+        removeVolumeBoostListener?.invoke()
+        removeVolumeBoostListener = null
         holder.removeCallback(this)
         mpvScope.launch {
             runCatching { mpv.destroy() }
             mpvDispatcher.close()
+        }
+    }
+
+    /** Keeps libmpv's internal gain in sync with the same continuous 0–200% value
+     * used by the gesture UI. Android STREAM_MUSIC handles 0–100%; above 100%,
+     * STREAM_MUSIC is already at max and libmpv supplies the additional gain.
+     */
+    fun startVolumeBoostSync() {
+        removeVolumeBoostListener?.invoke()
+        removeVolumeBoostListener = AndroidPlayerVolumeBoost.addListener { fraction ->
+            executeMpv {
+                mpv.setPropertyDouble("volume-max", 200.0)
+                mpv.setPropertyDouble("volume", if (fraction > 1f) fraction.coerceIn(1f, 2f) * 100.0 else 100.0)
+            }
         }
     }
 
@@ -2720,6 +2739,20 @@ private class SubtitleOffsetRenderersFactory(
     private val presentCues: (List<Cue>) -> List<Cue>,
     private val videoBoundsFractionProvider: () -> RectF?,
 ) : DefaultRenderersFactory(context) {
+    override fun buildAudioSink(
+        context: Context,
+        enableFloatOutput: Boolean,
+        enableAudioOutputPlaybackParams: Boolean,
+    ): AudioSink {
+        // Float output bypasses Media3's PCM processing pipeline. Keep it disabled so
+        // NuvioVolumeGainAudioProcessor can apply the >100% gain to decoded PCM.
+        return DefaultAudioSink.Builder(context)
+            .setEnableFloatOutput(false)
+            .setEnableAudioTrackPlaybackParams(enableAudioOutputPlaybackParams)
+            .setAudioProcessors(arrayOf(NuvioVolumeGainAudioProcessor()))
+            .build()
+    }
+
     override fun buildAudioRenderers(
         context: Context,
         extensionRendererMode: Int,
