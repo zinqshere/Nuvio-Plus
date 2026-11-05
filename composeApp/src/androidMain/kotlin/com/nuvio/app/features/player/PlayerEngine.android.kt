@@ -665,6 +665,15 @@ private fun ExoPlayerSurface(
         Log.d(TAG, "$reason: preserving audio track index=${selection.index} id=${selection.id}")
     }
 
+    // Bridge the existing gesture volume (0–200%) into upstream's dB-based PCM gain.
+    // The system stream handles 0–100%; player-side gain is only applied above 100%.
+    DisposableEffect(exoPlayer) {
+        val removeVolumeBoostListener = AndroidPlayerVolumeBoost.addListener { fraction ->
+            audioAmplificationDb.set(volumeBoostToDb(fraction))
+        }
+        onDispose { removeVolumeBoostListener() }
+    }
+
     DisposableEffect(exoPlayer) {
         PlayerPictureInPictureManager.registerPausePlaybackCallback {
             exoPlayer.pause()
@@ -1568,6 +1577,18 @@ private fun LibmpvPlayerSurface(
         nowPlayingController?.syncPlayback(snapshot)
     }
 
+    DisposableEffect(playerViewRef) {
+        val view = playerViewRef
+        if (view == null) {
+            onDispose {}
+        } else {
+            val removeVolumeBoostListener = AndroidPlayerVolumeBoost.addListener { fraction ->
+                view.setAudioAmplificationDb(volumeBoostToDb(fraction))
+            }
+            onDispose { removeVolumeBoostListener() }
+        }
+    }
+
     LaunchedEffect(playerViewRef, resizeMode) {
         playerViewRef?.applyResizeMode(resizeMode)
     }
@@ -1626,6 +1647,14 @@ private fun LibmpvPlayerSurface(
         )
         playerViewRef?.let { view -> StyledSubtitleOverlay(view.subtitleText, view.subtitleStyle) }
     }
+}
+
+/** Maps the legacy gesture's 1x–2x range to upstream's 0–10 dB amplification API. */
+private fun volumeBoostToDb(fraction: Float): Int {
+    val linearGain = fraction.coerceIn(1f, 2f)
+    return (20.0 * kotlin.math.log10(linearGain.toDouble()))
+        .roundToInt()
+        .coerceIn(AUDIO_AMPLIFICATION_MIN_DB, AUDIO_AMPLIFICATION_MAX_DB)
 }
 
 private tailrec fun Context.findActivity(): Activity? =
@@ -1856,6 +1885,13 @@ private class NuvioLibmpvView(
             videoWidth = videoWidth,
             videoHeight = videoHeight,
         )
+    }
+
+    fun setAudioAmplificationDb(db: Int) {
+        val clampedDb = db.coerceIn(AUDIO_AMPLIFICATION_MIN_DB, AUDIO_AMPLIFICATION_MAX_DB)
+        executeMpv {
+            mpv.setPropertyDouble("volume", 100.0 * audioAmplificationGain(clampedDb))
+        }
     }
 
     fun applyResizeMode(resizeMode: PlayerResizeMode) {
