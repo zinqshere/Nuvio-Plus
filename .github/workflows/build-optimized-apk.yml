@@ -37,8 +37,11 @@ jobs:
         run: |
           set -euo pipefail
           git diff --check
-          grep -q "NuvioVolumeGainAudioProcessor" composeApp/src/androidMain/kotlin/com/nuvio/app/features/player/PlayerEngine.android.kt
-          grep -q "override fun buildAudioSink" composeApp/src/androidMain/kotlin/com/nuvio/app/features/player/PlayerEngine.android.kt
+          PLAYER_ENGINE="composeApp/src/androidMain/kotlin/com/nuvio/app/features/player/PlayerEngine.android.kt"
+          grep -q "GainAudioProcessor(audioAmplificationDbProvider)" "${PLAYER_ENGINE}"
+          grep -q "AndroidPlayerVolumeBoost.addListener" "${PLAYER_ENGINE}"
+          grep -q "setAudioAmplificationDb(volumeBoostToDb(fraction))" "${PLAYER_ENGINE}"
+          grep -q "override fun buildAudioSink" "${PLAYER_ENGINE}"
 
       - name: Set up Java
         uses: actions/setup-java@v5
