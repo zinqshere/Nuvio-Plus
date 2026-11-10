@@ -128,7 +128,7 @@ object AuthRepository {
     suspend fun signUpWithEmail(email: String, password: String): Result<Unit> = runCatching {
         _error.value = null
         SupabaseProvider.client.auth.signUpWith(Email) {
-            this.email = email
+            this.email = email.trim()
             this.password = password
         }
         Unit
@@ -141,7 +141,7 @@ object AuthRepository {
     suspend fun signInWithEmail(email: String, password: String): Result<Unit> = runCatching {
         _error.value = null
         SupabaseProvider.client.auth.signInWith(Email) {
-            this.email = email
+            this.email = email.trim()
             this.password = password
         }
     }.onFailure { e ->
@@ -279,13 +279,23 @@ object AuthRepository {
         _error.value = null
     }
 
-    private fun Throwable.safeAuthErrorDescription(): String? =
-        findCause<AuthRestException>()
+    private fun Throwable.safeAuthErrorDescription(): String? {
+        val authDescription = findCause<AuthRestException>()
             ?.errorDescription
             ?.trim()
             ?.takeIf { it.isNotEmpty() }
-            ?: findCause<RestException>()
-                ?.description
-                ?.trim()
-                ?.takeIf { it.isNotEmpty() }
+        val restDescription = findCause<RestException>()
+            ?.description
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+
+        return authDescription
+            ?: restDescription
+            ?: generateSequence(this) { it.cause }
+                .mapNotNull { it.message?.trim() }
+                .firstOrNull { message ->
+                    message.isNotBlank() &&
+                        !message.equals("null", ignoreCase = true)
+                }
+    }
 }
