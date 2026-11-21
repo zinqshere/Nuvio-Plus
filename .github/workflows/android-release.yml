@@ -12,6 +12,11 @@ on:
           - draft
           - publish
         default: dry-run
+      build_ios:
+        description: Build the iOS IPA as part of this release
+        required: false
+        type: boolean
+        default: false
       exclude_commits:
         description: Optional comma-separated commit hashes to omit from the notes
         required: false
@@ -162,10 +167,35 @@ jobs:
       RELEASE_VERSION: ${{ needs.prepare.outputs.tag }}
       RELEASE_PROPERTIES_BASE64: ${{ secrets.NUVIO_LOCAL_PROPERTIES_BASE64 }}
       RELEASE_KEYSTORE_BASE64: ${{ secrets.NUVIO_RELEASE_KEYSTORE_BASE64 }}
+      TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+      SIMKL_CLIENT_ID: ${{ secrets.SIMKL_CLIENT_ID }}
+      MDBLIST_CLIENT_ID: ${{ secrets.MDBLIST_CLIENT_ID }}
+      TRAKT_CLIENT_ID: ${{ secrets.TRAKT_CLIENT_ID }}
 
     steps:
       - name: Check out source
         uses: actions/checkout@v6
+
+      - name: Checkout pinned MPVKit
+        shell: bash
+        run: |
+          set -euo pipefail
+          MPVKIT_SHA="d5cf091c80368bbbc1bbf2d195fbc55d926df888"
+          git clone --no-checkout https://github.com/NuvioMedia/MPVKit.git MPVKit
+          git -C MPVKit checkout --detach "${MPVKIT_SHA}"
+          git -C MPVKit config submodule.recurse false
+          test "$(git -C MPVKit rev-parse HEAD)" = "${MPVKIT_SHA}"
+
+      - name: Verify PCM volume-gain audio pipeline
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          PLAYER_ENGINE="composeApp/src/androidMain/kotlin/com/nuvio/app/features/player/PlayerEngine.android.kt"
+          grep -q "GainAudioProcessor(audioAmplificationDbProvider)" "${PLAYER_ENGINE}"
+          grep -q "AndroidPlayerVolumeBoost.addListener" "${PLAYER_ENGINE}"
+          grep -q "setAudioAmplificationDb(volumeBoostToDb(fraction))" "${PLAYER_ENGINE}"
+          grep -q "override fun buildAudioSink" "${PLAYER_ENGINE}"
 
       - name: Set up Java
         uses: actions/setup-java@v5
@@ -177,20 +207,65 @@ jobs:
         uses: gradle/actions/setup-gradle@v6
 
       - name: Configure release properties
+        shell: bash
         run: |
+          set -euo pipefail
+          DISCOVERY_URL="https://api.nuvio.tv/.well-known/nuvio"
+          discovery_json="$(curl --fail --silent --show-error --location --max-time 20 "${DISCOVERY_URL}")"
+          DISCOVERY_VERSION="$(jq -er '.version' <<<"${discovery_json}")"
+          DISCOVERY_SERVICE="$(jq -er '.service' <<<"${discovery_json}")"
+          NUVIO_SUPABASE_URL="$(jq -er '.backend_url' <<<"${discovery_json}")"
+          NUVIO_SUPABASE_ANON_KEY="$(jq -er '.publishable_key' <<<"${discovery_json}")"
+          EMAIL_PASSWORD_AUTH="$(jq -er '.capabilities.email_password_auth' <<<"${discovery_json}")"
+
+          if [[ "${DISCOVERY_VERSION}" != "1" || "${DISCOVERY_SERVICE,,}" != "nuvio" ]]; then
+            echo "Official discovery document is invalid for the official Nuvio service." >&2
+            exit 1
+          fi
+          if [[ "${NUVIO_SUPABASE_URL%/}" != "https://api.nuvio.tv" ]]; then
+            echo "Official discovery returned an unexpected backend URL: ${NUVIO_SUPABASE_URL}" >&2
+            exit 1
+          fi
+          if [[ "${EMAIL_PASSWORD_AUTH}" != "true" || -z "${NUVIO_SUPABASE_ANON_KEY}" ]]; then
+            echo "Official backend authentication configuration is invalid." >&2
+            exit 1
+          fi
+
           keystore_path="${RUNNER_TEMP}/nuvio-release.jks"
           printf '%s' "${RELEASE_KEYSTORE_BASE64}" | base64 --decode > "${keystore_path}"
-          printf '%s' "${RELEASE_PROPERTIES_BASE64}" | base64 --decode > local.properties
+          printf '%s' "${RELEASE_PROPERTIES_BASE64}" | base64 --decode > release-signing.properties
+          BUNDLED_TMDB_API_KEY="$(grep -m1 '^TMDB_API_KEY=' release-signing.properties | cut -d= -f2- || true)"
+          sed -i -E '/^[[:space:]]*(sdk\.dir|NUVIO_RELEASE_STORE_FILE|NUVIO_SUPABASE_URL|NUVIO_SUPABASE_ANON_KEY|NUVIO_SUPABASE_FALLBACK_URL|TMDB_API_KEY)[[:space:]]*=/d' release-signing.properties
 
-          sed -i -E '/^[[:space:]]*(sdk\.dir|NUVIO_RELEASE_STORE_FILE)[[:space:]]*=/d' local.properties
-          printf '\nNUVIO_RELEASE_STORE_FILE=%s\n' "${keystore_path}" >> local.properties
+          cat release-signing.properties > local.properties
+          printf 'SIMKL_CLIENT_ID=%s\n' "${SIMKL_CLIENT_ID}" >> local.properties
+          if [[ -n "${MDBLIST_CLIENT_ID:-}" ]]; then
+            printf 'MDBLIST_CLIENT_ID=%s\n' "${MDBLIST_CLIENT_ID}" >> local.properties
+          fi
+          if [[ -n "${TRAKT_CLIENT_ID:-}" ]]; then
+            printf 'TRAKT_CLIENT_ID=%s\n' "${TRAKT_CLIENT_ID}" >> local.properties
+          fi
+          {
+            printf '\nNUVIO_RELEASE_STORE_FILE=%s\n' "${keystore_path}"
+            printf 'NUVIO_SUPABASE_URL=%s\n' "${NUVIO_SUPABASE_URL}"
+            printf 'NUVIO_SUPABASE_ANON_KEY=%s\n' "${NUVIO_SUPABASE_ANON_KEY}"
+          } >> local.properties
+
+          if [[ -n "${TMDB_API_KEY}" ]]; then
+            printf 'TMDB_API_KEY=%s\n' "${TMDB_API_KEY}" >> local.properties
+          elif [[ -n "${BUNDLED_TMDB_API_KEY}" ]]; then
+            printf 'TMDB_API_KEY=%s\n' "${BUNDLED_TMDB_API_KEY}" >> local.properties
+          fi
+          if ! grep -Eq '^TMDB_API_KEY=.+$' local.properties; then
+            echo "Missing TMDB_API_KEY. Configure the TMDB_API_KEY Actions secret or include it in NUVIO_LOCAL_PROPERTIES_BASE64." >&2
+            exit 1
+          fi
 
           required_properties=(
             NUVIO_RELEASE_STORE_PASSWORD
             NUVIO_RELEASE_KEY_ALIAS
             NUVIO_RELEASE_KEY_PASSWORD
-            TRAKT_CLIENT_ID
-            TRAKT_CLIENT_SECRET
+            SIMKL_CLIENT_ID
           )
           for property_name in "${required_properties[@]}"; do
             if ! grep -Eq "^${property_name}=.+" local.properties; then
@@ -211,7 +286,7 @@ jobs:
 
   ios:
     name: Build iOS IPA
-    if: inputs.mode != 'dry-run'
+    if: inputs.mode != 'dry-run' && inputs.build_ios
     needs: prepare
     runs-on: xcode-27
     timeout-minutes: 120
@@ -222,6 +297,7 @@ jobs:
       NUVIO_GRADLE_JVMARGS: -Xmx4608M -Dfile.encoding=UTF-8 -XX:MaxMetaspaceSize=768M
       NUVIO_KOTLIN_NATIVE_JVMARGS: -Xmx4608M
       RELEASE_PROPERTIES_BASE64: ${{ secrets.NUVIO_LOCAL_PROPERTIES_BASE64 }}
+      SIMKL_CLIENT_ID: ${{ secrets.SIMKL_CLIENT_ID }}
 
     steps:
       - name: Check out source
@@ -250,9 +326,25 @@ jobs:
           xcrun --sdk iphoneos --show-sdk-version
 
       - name: Configure runtime properties
+        shell: bash
         run: |
+          set -euo pipefail
+          DISCOVERY_URL="https://api.nuvio.tv/.well-known/nuvio"
+          discovery_json="$(curl --fail --silent --show-error --location --max-time 20 "${DISCOVERY_URL}")"
+          NUVIO_SUPABASE_URL="$(jq -er '.backend_url' <<<"${discovery_json}")"
+          NUVIO_SUPABASE_ANON_KEY="$(jq -er '.publishable_key' <<<"${discovery_json}")"
+          EMAIL_PASSWORD_AUTH="$(jq -er '.capabilities.email_password_auth' <<<"${discovery_json}")"
+          if [[ "${NUVIO_SUPABASE_URL%/}" != "https://api.nuvio.tv" || "${EMAIL_PASSWORD_AUTH}" != "true" || -z "${NUVIO_SUPABASE_ANON_KEY}" ]]; then
+            echo "Official backend discovery validation failed." >&2
+            exit 1
+          fi
           printf '%s' "${RELEASE_PROPERTIES_BASE64}" | base64 --decode > local.properties
-          sed -i '' -E '/^[[:space:]]*(sdk\.dir|NUVIO_RELEASE_STORE_FILE)[[:space:]]*=/d' local.properties
+          printf 'SIMKL_CLIENT_ID=%s\n' "${SIMKL_CLIENT_ID}" >> local.properties
+          sed -i '' -E '/^[[:space:]]*(sdk\.dir|NUVIO_RELEASE_STORE_FILE|NUVIO_SUPABASE_URL|NUVIO_SUPABASE_ANON_KEY|NUVIO_SUPABASE_FALLBACK_URL)[[:space:]]*=/d' local.properties
+          {
+            printf '\nNUVIO_SUPABASE_URL=%s\n' "${NUVIO_SUPABASE_URL}"
+            printf 'NUVIO_SUPABASE_ANON_KEY=%s\n' "${NUVIO_SUPABASE_ANON_KEY}"
+          } >> local.properties
 
       - name: Prepare iOS dependencies
         run: ./scripts/prepare-ios-dependencies.sh
@@ -281,7 +373,11 @@ jobs:
 
   release:
     name: Create ${{ inputs.mode }} release
-    if: inputs.mode != 'dry-run'
+    if: >-
+      always() && !cancelled() && inputs.mode != 'dry-run'
+      && needs.prepare.result == 'success'
+      && needs.android.result == 'success'
+      && (needs.ios.result == 'success' || needs.ios.result == 'skipped')
     needs:
       - prepare
       - android
@@ -293,6 +389,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       RELEASE_MODE: ${{ inputs.mode }}
       RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+      RELEASE_VERSION: ${{ needs.prepare.outputs.tag }}
       RELEASE_TITLE: ${{ needs.prepare.outputs.title }}
       RELEASE_PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
       RELEASE_BRANCH: ${{ github.ref_name }}
